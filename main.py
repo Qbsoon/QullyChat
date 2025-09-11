@@ -125,7 +125,6 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         self.chatInput.clear()
         self.update_chat_display()
         self.chatDisplay.append("<b>Assistant:</b> ")
-        #QApplication.processEvents()
         request = {"messages": self.chatHistory, "max_tokens": -1, "n_predict": -1, "stream": True}
         self.worker = LLMWorker(request)
         self.worker.token_emit.connect(lambda token: self.chatDisplay.insertPlainText(token) or self.chatDisplay.moveCursor(QTextCursor.MoveOperation.End))
@@ -217,6 +216,8 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 2: "Q4_0",
                 3: "Q4_1",
                 4: "Q4_1_SOME_F16",
+                5: "Q4_2",
+                6: "Q4_3",
                 7: "Q8_0",
                 8: "Q5_0",
                 9: "Q5_1",
@@ -231,12 +232,14 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 18: "Q6_K",
                 19: "IQ2_XSS",
                 20: "IQ2_XS",
+                21: "Q2_K_S",
                 22: "IQ3_XS",
                 23: "IQ3_XXS",
                 24: "IQ1_S",
                 25: "IQ4_NL",
                 26: "IQ3_S",
                 27: "IQ3_M",
+                28: "IQ2_S",
                 29: "IQ2_M",
                 30: "IQ4_XS",
                 31: "IQ1_M",
@@ -244,6 +247,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 33: "Q4_0_4_4",
                 34: "Q4_0_4_8",
                 35: "Q4_0_8_8",
+                36: "TQ1_0",
+                37: "TQ2_0",
+                38: "MXFP4_MOE",
                 145: "IQ4_KS",
                 147: "IQ2_KS",
                 148: "IQ4_KSS",
