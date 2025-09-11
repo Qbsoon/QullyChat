@@ -9,6 +9,8 @@ import requests
 import sseclient
 import json
 from markdown import markdown as md_to_html
+from gguf.gguf_reader import GGUFReader
+import numpy as np
 
 url = "http://127.0.0.1:5175/v1/chat/completions"
 
@@ -58,9 +60,13 @@ class App(QWidget):
         super().__init__()
         self.setWindowTitle("LMnGen App")
         self.chatHistory = [{"role": "system", "content": "You are a helpful assistant."}]
+        self.models = {}
 
         self.mainLayout = QVBoxLayout()
+        self.tabs = QTabWidget()
         self.initUI()
+        self.initModels()
+        self.mainLayout.addWidget(self.tabs)
         self.setLayout(self.mainLayout)
 
     def initUI(self):
@@ -110,7 +116,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 
         layout.addLayout(inputLayout)
         widget.setLayout(layout)
-        self.mainLayout.addWidget(widget)
+        self.tabs.addTab(widget, "Chat")
 
     def send_prompt(self):
         print("dooing")
@@ -151,6 +157,168 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             #self.chatDisplay.insertPlainText(content + "\n")
         self.chatDisplay.setMarkdown("\n\n".join(parts))
         self.chatDisplay.verticalScrollBar().setValue(self.chatDisplay.verticalScrollBar().maximum())
+
+    def initModels(self):
+        widget = QWidget()
+        layout = QVBoxLayout()
+        layout.setSpacing(6)
+
+        buttonsSec = QHBoxLayout()
+        addModelBtn = QPushButton("Add Model")
+        addModelBtn.clicked.connect(self.add_model)
+        removeModelBtn = QPushButton("Remove Model")
+        removeModelBtn.clicked.connect(self.remove_model)
+        buttonsSec.addWidget(addModelBtn)
+        buttonsSec.addWidget(removeModelBtn)
+        layout.addLayout(buttonsSec)
+
+        try:
+            with open("models.json", "r") as f:
+                self.models = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.models = {}
+        
+        self.modelsTable = QTableWidget()
+        self.modelsTable.setColumnCount(5)
+        self.modelsTable.setHorizontalHeaderLabels(["Path", "Name", "Parameters","Weights", "Layers"])
+        self.modelsTable.horizontalHeader().setStretchLastSection(True)
+        self.modelsTable.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.modelsTable.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.modelsTable.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.modelsTable.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+
+        for model in self.models.get("models", []):
+            row = self.modelsTable.rowCount()
+            self.modelsTable.insertRow(row)
+            self.modelsTable.setItem(row, 0, QTableWidgetItem(model.get("path", "")))
+            self.modelsTable.setItem(row, 1, QTableWidgetItem(model.get("name", "")))
+            self.modelsTable.setItem(row, 2, QTableWidgetItem(str(model.get("parameters", ""))))
+            self.modelsTable.setItem(row, 3, QTableWidgetItem(str(model.get("weights", ""))))
+            self.modelsTable.setItem(row, 4, QTableWidgetItem(str(model.get("layers", ""))))
+
+        layout.addWidget(self.modelsTable)
+        widget.setLayout(layout)
+        self.tabs.addTab(widget, "Models")
+
+    def add_model(self):
+        
+        file_dialog = QFileDialog(self)
+        file_dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        if file_dialog.exec():
+            file_path = file_dialog.selectedFiles()[0]
+            name = "Unknown"
+            parameters = "Unknown"
+            weights = "Unknown"
+            layers = "Unknown"
+
+            weights_map = {
+                0: "F32",
+                1: "F16",
+                2: "Q4_0",
+                3: "Q4_1",
+                4: "Q4_1_SOME_F16",
+                7: "Q8_0",
+                8: "Q5_0",
+                9: "Q5_1",
+                10: "Q2_K",
+                11: "Q3_K_S",
+                12: "Q3_K_M",
+                13: "Q3_K_L",
+                14: "Q4_K_S",
+                15: "Q4_K_M",
+                16: "Q5_K_S",
+                17: "Q5_K_M",
+                18: "Q6_K",
+                19: "IQ2_XSS",
+                20: "IQ2_XS",
+                22: "IQ3_XS",
+                23: "IQ3_XXS",
+                24: "IQ1_S",
+                25: "IQ4_NL",
+                26: "IQ3_S",
+                27: "IQ3_M",
+                29: "IQ2_M",
+                30: "IQ4_XS",
+                31: "IQ1_M",
+                32: "BF16",
+                33: "Q4_0_4_4",
+                34: "Q4_0_4_8",
+                35: "Q4_0_8_8",
+                145: "IQ4_KS",
+                147: "IQ2_KS",
+                148: "IQ4_KSS",
+                150: "IQ5_KS",
+                154: "IQ3_KS",
+                155: "IQ2_KL",
+                156: "IQ1_KT"
+            }
+            
+            try:
+                model_info = GGUFReader(file_path)
+                for key, field in model_info.fields.items():
+                    if key == "general.name":
+                        name = str(self.maybe_decode(field.parts[field.data[0]]))
+                    elif key == "general.size_label":
+                        parameters = str(self.maybe_decode(field.parts[field.data[0]]))
+                    elif key == "general.file_type":
+                        weights = weights_map.get(self.maybe_decode(field.parts[field.data[0]]), f"Unknown ({field.data[0]})")
+                    elif key.endswith("block_count"):
+                        layers = str(self.maybe_decode(field.parts[field.data[0]]))
+
+                self.models.setdefault("models", []).append({
+                    "path": file_path,
+                    "name": name,
+                    "parameters": parameters,
+                    "weights": weights,
+                    "layers": layers
+                })
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to read model info: {e}")
+                return
+        self.refresh_models_table()
+    
+    def maybe_decode(self, value):
+        # bytes or bytearray -> try UTF-8
+        if isinstance(value, (bytes, bytearray)):
+            return value.decode("utf-8", errors="replace")
+
+        # numpy array of uint8 -> bytes -> UTF-8
+        if isinstance(value, np.ndarray) and value.dtype == np.uint8:
+            return value.tobytes().decode("utf-8", errors="replace")
+
+        # list/tuple of ints 0..255 -> bytes -> UTF-8
+        if isinstance(value, (list, tuple)) and value and all(isinstance(x, (int, np.integer)) and 0 <= int(x) <= 255 for x in value):
+            return bytes(value).decode("utf-8", errors="replace")
+
+        # list/tuple of bytes -> decode each
+        if isinstance(value, (list, tuple)) and value and all(isinstance(x, (bytes, bytearray)) for x in value):
+            return [x.decode("utf-8", errors="replace") for x in value]
+
+        return value[0]
+
+    def remove_model(self):
+        selected_rows = self.modelsTable.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "Warning", "No model selected.")
+            return
+        row = selected_rows[0].row()
+        del self.models["models"][row]
+        self.refresh_models_table()
+
+    def refresh_models_table(self):
+        self.modelsTable.setRowCount(0)
+        if self.models.get("models") is None:
+            return
+        for model in self.models.get("models", []):
+            row = self.modelsTable.rowCount()
+            self.modelsTable.insertRow(row)
+            self.modelsTable.setItem(row, 0, QTableWidgetItem(model.get("path", "")))
+            self.modelsTable.setItem(row, 1, QTableWidgetItem(model.get("name", "")))
+            self.modelsTable.setItem(row, 2, QTableWidgetItem(str(model.get("parameters", ""))))
+            self.modelsTable.setItem(row, 3, QTableWidgetItem(str(model.get("weights", ""))))
+            self.modelsTable.setItem(row, 4, QTableWidgetItem(str(model.get("layers", ""))))
+        with open("models.json", "w") as f:
+            json.dump(self.models, f, indent=4)
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
