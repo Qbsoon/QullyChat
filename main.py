@@ -1,9 +1,10 @@
+import os
 from PyQt6.QtWidgets import (
 	QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit, QLineEdit,
-	QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QFileDialog, QSplitter, QDialog
+	QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QFileDialog, QSplitter, QDialog, QListWidget, QListWidgetItem, QInputDialog
 )
 from PyQt6.QtGui import QTextCursor, QPixmap
-from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal, QItemSelectionModel
 import sys
 import requests
 import sseclient
@@ -64,15 +65,44 @@ class App(QWidget):
 
         self.mainLayout = QVBoxLayout()
         self.tabs = QTabWidget()
-        self.initUI()
+        self.initChat()
         self.initModels()
         self.mainLayout.addWidget(self.tabs)
         self.setLayout(self.mainLayout)
 
-    def initUI(self):
+    def initChat(self):
         widget = QWidget()
-        layout = QVBoxLayout()
-        layout.setSpacing(6)
+        layout = QHBoxLayout()
+
+        chatLLayout = QVBoxLayout()
+        chatLLayout.setSpacing(6)
+
+        chatLTitle = QLabel("List of chats")
+        chatLTitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        chatLLayout.addWidget(chatLTitle)
+
+        chatLButtons = QHBoxLayout()
+        createChatBtn = QPushButton("+")
+        createChatBtn.setToolTip("Create a new chat session")
+        createChatBtn.clicked.connect(self.create_new_chat)
+        chatLButtons.addWidget(createChatBtn)
+
+        removeChatsBtn = QPushButton("-")
+        removeChatsBtn.setToolTip("Remove selected chat sessions")
+        removeChatsBtn.clicked.connect(self.remove_chat)
+        chatLButtons.addWidget(removeChatsBtn)
+
+        chatLLayout.addLayout(chatLButtons)
+
+        self.chatList = QListWidget()
+        self.chatList.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        self.chatList.currentItemChanged.connect(self.load_chat)
+
+        chatLLayout.addWidget(self.chatList)
+        layout.addLayout(chatLLayout, 20)
+
+        chatWLayout = QVBoxLayout()
+        chatWLayout.setSpacing(6)
 
         self.chatDisplay = QTextEdit()
         self.chatDisplay.setReadOnly(True)
@@ -101,7 +131,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
     background: none;
 }
 """)
-        layout.addWidget(self.chatDisplay)
+        chatWLayout.addWidget(self.chatDisplay)
 
         inputLayout = QHBoxLayout()
         self.chatInput = QLineEdit()
@@ -114,17 +144,101 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         inputLayout.addWidget(self.chatInput)
         inputLayout.addWidget(sendBtn)
 
-        layout.addLayout(inputLayout)
+        chatWLayout.addLayout(inputLayout)
+        layout.addLayout(chatWLayout, 80)
         widget.setLayout(layout)
         self.tabs.addTab(widget, "Chat")
+        self.load_chat_list()
+
+    def create_new_chat(self, title=None):
+        ok = True
+        if isinstance(title, bool):
+            title = None
+        if title is None:
+            title, ok = QInputDialog.getText(self, "New Chat", "Enter chat title:")
+        if ok and title.strip():
+            self.save_chat()
+            self.chatHistory = [{"role": "system", "content": "You are a helpful assistant."}]
+            chat = QListWidgetItem(title.strip())
+            chat.setData(Qt.ItemDataRole.UserRole, f"chat_{self.chatList.count()}.json")
+            self.chatList.addItem(chat)
+            self.chatList.setCurrentItem(chat, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+            self.update_chat_display()
+            self.save_chat()
+            self.save_chat_list()
+    
+    def load_chat_list(self):
+        try:
+            with open("chats/chat_list.json", "r") as f:
+                chats = json.load(f)
+                if chats.get("chats") is None:
+                    self.create_new_chat("Default Chat")
+                    return
+                for chat in chats.get("chats", []):
+                    item = QListWidgetItem(chat.get("title", "Untitled Chat"))
+                    item.setData(Qt.ItemDataRole.UserRole, chat.get("filename", ""))
+                    self.chatList.addItem(item)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.create_new_chat("Default Chat")
+
+    def load_chat(self):
+        chat = self.chatList.currentItem()
+        if chat:
+            filename = chat.data(Qt.ItemDataRole.UserRole)
+            try:
+                with open("chats/" + filename, "r") as f:
+                    self.chatHistory = json.load(f).get("history", [{"role": "system", "content": "You are a helpful assistant."}])
+            except (FileNotFoundError, json.JSONDecodeError):
+                self.chatHistory = [{"role": "system", "content": "You are a helpful assistant."}]
+            self.update_chat_display()
+    
+    def save_chat(self):
+        chat = self.chatList.currentItem()
+        if chat:
+            filename = chat.data(Qt.ItemDataRole.UserRole)
+            try:
+                with open("chats/" + filename, "w") as f:
+                    json.dump({"title": chat.text(), "history": self.chatHistory}, f, indent=4)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save chat: {e}")
+                return
+    
+    def save_chat_list(self):
+        if not os.path.exists("chats"):
+            os.makedirs("chats")
+        chats = []
+        for i in range(self.chatList.count()):
+            item = self.chatList.item(i)
+            chats.append({"title": item.text(), "filename": item.data(Qt.ItemDataRole.UserRole)})
+        try:
+            with open("chats/chat_list.json", "w") as f:
+                json.dump({"chats": chats}, f, indent=4)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save chat list: {e}")
+            return
+        
+    def remove_chat(self):
+        selected_items = self.chatList.selectedItems()
+        if not selected_items:
+            return
+        
+        for chat in selected_items:
+            self.chatList.takeItem(self.chatList.row(chat))
+            filename = chat.data(Qt.ItemDataRole.UserRole)
+            try:
+                os.remove("chats/" + filename)
+                self.save_chat_list()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to delete chat file: {e}")
+                return
 
     def send_prompt(self):
-        print("dooing")
         prompt = self.chatInput.text().strip()
         self.chatHistory.append({"role": "user", "content": prompt})
         self.chatInput.clear()
         self.update_chat_display()
-        self.chatDisplay.append("<b>Assistant:</b> ")
+        self.chatDisplay.append(f'<b><span style="color: orange;">Assistant:</span></b> ')
+        QApplication.processEvents()
         request = {"messages": self.chatHistory, "max_tokens": -1, "n_predict": -1, "stream": True}
         self.worker = LLMWorker(request)
         self.worker.token_emit.connect(lambda token: self.chatDisplay.insertPlainText(token) or self.chatDisplay.moveCursor(QTextCursor.MoveOperation.End))
@@ -153,9 +267,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 parts.append(f'<b><i><span style="color: green;">System:</span></i></b> {content}')
             else:
                 parts.append(f'<b><span style="color: red;">{role.capitalize()}:</span></b> {content}')
-            #self.chatDisplay.insertPlainText(content + "\n")
         self.chatDisplay.setMarkdown("\n\n".join(parts))
         self.chatDisplay.verticalScrollBar().setValue(self.chatDisplay.verticalScrollBar().maximum())
+        self.save_chat()
 
     def initModels(self):
         widget = QWidget()
