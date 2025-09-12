@@ -3,8 +3,8 @@ from PyQt6.QtWidgets import (
 	QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit, QLineEdit,
 	QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QFileDialog, QSplitter, QDialog, QListWidget, QListWidgetItem, QInputDialog
 )
-from PyQt6.QtGui import QTextCursor, QPixmap
-from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal, QItemSelectionModel
+from PyQt6.QtGui import QTextCursor, QPixmap, QCursor
+from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal, QItemSelectionModel, QEvent
 import sys
 import requests
 import sseclient
@@ -59,16 +59,154 @@ class LLMWorker(QThread):
 class App(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("LMnGen App")
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.setMinimumSize(600, 338)
+        self.setWindowTitle("Qully Chat")
+
         self.chatHistory = [{"role": "system", "content": "You are a helpful assistant."}]
         self.models = {}
 
         self.mainLayout = QVBoxLayout()
+        self.mainLayout.setContentsMargins(0, 0, 0, 0)
+        self.mainLayout.setSpacing(0)
         self.tabs = QTabWidget()
+        self.initTopBar()
         self.initChat()
         self.initModels()
         self.mainLayout.addWidget(self.tabs)
         self.setLayout(self.mainLayout)
+
+        QApplication.instance().installEventFilter(self)
+        self.enable_mouse_tracking(self)
+
+    def initTopBar(self):
+        self.topBar = QWidget(self)
+        self.topBar.setObjectName("Qully Chat")
+        self.topBar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+
+        layout = QHBoxLayout(self.topBar)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(6)
+        layout.addWidget(QLabel("Qully Chat", self.topBar))
+        layout.addStretch()
+
+        self.minimizeBtn = QPushButton("-", self.topBar)
+        self.minimizeBtn.setToolTip("Minimize")
+        self.minimizeBtn.setFixedSize(32, 24)
+        self.minimizeBtn.clicked.connect(self.minimize)
+
+        self.maximizeBtn = QPushButton("❐", self.topBar)
+        self.maximizeBtn.setToolTip("Maximize")
+        self.maximizeBtn.setFixedSize(32, 24)
+        self.maximizeBtn.clicked.connect(self.toggle_maximize)
+
+        self.closeBtn = QPushButton("×", self.topBar)
+        self.closeBtn.setToolTip("Close")
+        self.closeBtn.setFixedSize(32, 24)
+        self.closeBtn.clicked.connect(self.closeApp)
+
+        layout.addWidget(self.minimizeBtn)
+        layout.addWidget(self.maximizeBtn)
+        layout.addWidget(self.closeBtn)
+
+        self.topBar.installEventFilter(self)
+        self.mainLayout.addWidget(self.topBar)
+
+    def eventFilter(self, obj, event):
+        if obj is self.topBar:
+            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                pos_in_win = self.topBar.mapTo(self, event.position().toPoint())
+                if not self.isMaximized() and self.hit_test_edges(pos_in_win):
+                    pass
+                else:
+                    win = self.windowHandle()
+                    if win:
+                        win.startSystemMove()
+                        return True
+            if event.type() == QEvent.Type.MouseButtonDblClick and event.button() == Qt.MouseButton.LeftButton:
+                pos_in_win = self.topBar.mapTo(self, event.position().toPoint())
+                if not self.hit_test_edges(pos_in_win):
+                    self.showNormal() if self.isMaximized() else self.showMaximized()
+                return True
+            
+        if isinstance(obj, QWidget) and obj.window() is self:
+            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                win = self.windowHandle()
+                if win and not self.isMaximized():
+                    pos_in_win = obj.mapTo(self, event.position().toPoint())
+                    edges = self.hit_test_edges(pos_in_win)
+                    if edges:
+                        win.startSystemResize(edges)
+                        return True
+
+            if event.type() in (QEvent.Type.MouseMove, QEvent.Type.HoverMove):
+                if hasattr(event, 'position'):
+                    pos_in_win = self.mapTo(self, event.position().toPoint())
+                else:
+                    pos_in_win = self.mapFromGlobal(QCursor.pos())
+                edges = self.hit_test_edges(pos_in_win)
+                if self.isMaximized():
+                    self.unsetCursor()
+                elif edges == (Qt.Edge.LeftEdge | Qt.Edge.TopEdge) or edges == (Qt.Edge.RightEdge | Qt.Edge.BottomEdge):
+                    self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+                elif edges == (Qt.Edge.RightEdge | Qt.Edge.TopEdge) or edges == (Qt.Edge.LeftEdge | Qt.Edge.BottomEdge):
+                    self.setCursor(Qt.CursorShape.SizeBDiagCursor)
+                elif edges & (Qt.Edge.LeftEdge | Qt.Edge.RightEdge):
+                    self.setCursor(Qt.CursorShape.SizeHorCursor)
+                elif edges & (Qt.Edge.TopEdge | Qt.Edge.BottomEdge):
+                    self.setCursor(Qt.CursorShape.SizeVerCursor)
+                else:
+                    self.unsetCursor()
+                return False
+
+            if event.type() == QEvent.Type.MouseButtonRelease:
+                self.unsetCursor()
+                return False
+            
+        return super().eventFilter(obj, event)
+    
+    def enable_mouse_tracking(self, widget):
+        widget.setMouseTracking(True)
+        for child in widget.findChildren(QWidget):
+            child.setMouseTracking(True)
+    
+    def hit_test_edges(self, pos):
+        if self.isMaximized():
+            return Qt.Edge(0)
+        r = self.rect(); x, y = pos.x(), pos.y()
+        edges = Qt.Edge(0)
+        if x <= 6: edges |= Qt.Edge.LeftEdge
+        if x >= r.width() - 6: edges |= Qt.Edge.RightEdge
+        if y <= 6: edges |= Qt.Edge.TopEdge
+        if y >= r.height() - 6: edges |= Qt.Edge.BottomEdge
+        return edges
+    
+    def minimize(self):
+        self.showMinimized()
+
+    def toggle_maximize(self):
+        if self.isMaximized():
+            self.showNormal()
+            self.maximizeBtn.setText("❐")
+            self.maximizeBtn.setToolTip("Restore")
+        else:
+            self.showMaximized()
+            self.maximizeBtn.setText("□")
+            self.maximizeBtn.setToolTip("Maximize")
+
+    def closeApp(self):
+        try:
+            self.save_chat()
+            self.save_chat_list()
+        finally:
+            self.close()
+
+    def closeEvent(self, event):
+        try:
+            self.save_chat()
+            self.save_chat_list()
+        finally:
+            super().closeEvent(event)
 
     def initChat(self):
         widget = QWidget()
