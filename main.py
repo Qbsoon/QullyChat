@@ -1,7 +1,8 @@
 import os
 from PyQt6.QtWidgets import (
 	QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit, QLineEdit,
-	QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QFileDialog, QSplitter, QDialog, QListWidget, QListWidgetItem, QInputDialog
+	QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QFileDialog, QSplitter,
+    QDialog, QListWidget, QListWidgetItem, QInputDialog, QComboBox
 )
 from PyQt6.QtGui import QTextCursor, QPixmap, QCursor
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal, QItemSelectionModel, QEvent
@@ -55,6 +56,114 @@ class LLMWorker(QThread):
     def stop(self):
         self._is_running = False
 
+class GGUFInfoWoker(QThread):
+    info_ready = pyqtSignal(dict)
+
+    def __init__(self, model_path):
+        super().__init__()
+        self._is_running = True
+        self.model_path = model_path
+        self.weights_map = {
+            0: "F32",
+            1: "F16",
+            2: "Q4_0",
+            3: "Q4_1",
+            4: "Q4_1_SOME_F16",
+            5: "Q4_2",
+            6: "Q4_3",
+            7: "Q8_0",
+            8: "Q5_0",
+            9: "Q5_1",
+            10: "Q2_K",
+            11: "Q3_K_S",
+            12: "Q3_K_M",
+            13: "Q3_K_L",
+            14: "Q4_K_S",
+            15: "Q4_K_M",
+            16: "Q5_K_S",
+            17: "Q5_K_M",
+            18: "Q6_K",
+            19: "IQ2_XSS",
+            20: "IQ2_XS",
+            21: "Q2_K_S",
+            22: "IQ3_XS",
+            23: "IQ3_XXS",
+            24: "IQ1_S",
+            25: "IQ4_NL",
+            26: "IQ3_S",
+            27: "IQ3_M",
+            28: "IQ2_S",
+            29: "IQ2_M",
+            30: "IQ4_XS",
+            31: "IQ1_M",
+            32: "BF16",
+            33: "Q4_0_4_4",
+            34: "Q4_0_4_8",
+            35: "Q4_0_8_8",
+            36: "TQ1_0",
+            37: "TQ2_0",
+            38: "MXFP4_MOE",
+            145: "IQ4_KS",
+            147: "IQ2_KS",
+            148: "IQ4_KSS",
+            150: "IQ5_KS",
+            154: "IQ3_KS",
+            155: "IQ2_KL",
+            156: "IQ1_KT"
+        }
+
+    def run(self):
+        self._is_running = True
+        info = {}
+        try:
+            model_info = GGUFReader(self.model_path)
+            info.update({"path": self.model_path})
+            for key, field in model_info.fields.items():
+                if key == "general.name":
+                    info.update({"name": str(self.maybe_decode(field.parts[field.data[0]]))})
+                elif key == "general.size_label":
+                    info.update({"parameters": str(self.maybe_decode(field.parts[field.data[0]]))})
+                elif key == "general.file_type":
+                    info.update({"weights": self.weights_map.get(self.maybe_decode(field.parts[field.data[0]]), f"Unknown ({field.data[0]})")})
+                elif key.endswith("block_count"):
+                    info.update({"layers": str(self.maybe_decode(field.parts[field.data[0]]))})
+            if "name" not in info:
+                info["name"] = "Unknown"
+            if "parameters" not in info:
+                info["parameters"] = "Unknown"
+            if "weights" not in info:
+                info["weights"] = "Unknown"
+            if "layers" not in info:
+                info["layers"] = "Unknown"
+        except Exception as e:
+            info = {"path": self.model_path, "name": "Error", "parameters": "Error", "weights": "Error", "layers": "Error"}
+        
+        self.info_ready.emit(info)
+
+        if not self._is_running:
+            return
+        
+    def stop(self):
+        self._is_running = False
+    
+    def maybe_decode(self, value):
+        # bytes or bytearray -> try UTF-8
+        if isinstance(value, (bytes, bytearray)):
+            return value.decode("utf-8", errors="replace")
+
+        # numpy array of uint8 -> bytes -> UTF-8
+        if isinstance(value, np.ndarray) and value.dtype == np.uint8:
+            return value.tobytes().decode("utf-8", errors="replace")
+
+        # list/tuple of ints 0..255 -> bytes -> UTF-8
+        if isinstance(value, (list, tuple)) and value and all(isinstance(x, (int, np.integer)) and 0 <= int(x) <= 255 for x in value):
+            return bytes(value).decode("utf-8", errors="replace")
+
+        # list/tuple of bytes -> decode each
+        if isinstance(value, (list, tuple)) and value and all(isinstance(x, (bytes, bytearray)) for x in value):
+            return [x.decode("utf-8", errors="replace") for x in value]
+
+        return value[0]
 
 class App(QWidget):
     def __init__(self):
@@ -64,7 +173,7 @@ class App(QWidget):
         self.setWindowTitle("Qully Chat")
 
         self.chatHistory = [{"role": "system", "content": "You are a helpful assistant."}]
-        self.models = {}
+        self.models = []
 
         self.mainLayout = QVBoxLayout()
         self.mainLayout.setContentsMargins(0, 0, 0, 0)
@@ -88,6 +197,13 @@ class App(QWidget):
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(6)
         layout.addWidget(QLabel("Qully Chat", self.topBar))
+        layout.addStretch()
+
+        self.modelSelect = QComboBox(self.topBar)
+        self.modelSelect.setToolTip("Select Model")
+        self.modelSelect.setFixedHeight(24)
+
+        layout.addWidget(self.modelSelect)
         layout.addStretch()
 
         self.minimizeBtn = QPushButton("-", self.topBar)
@@ -425,10 +541,11 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 
         try:
             with open("models.json", "r") as f:
-                self.models = json.load(f)
+                models_json = json.load(f)
+                self.models = models_json.get('models', [])
         except (FileNotFoundError, json.JSONDecodeError):
-            self.models = {}
-        
+            self.models = []
+
         self.modelsTable = QTableWidget()
         self.modelsTable.setColumnCount(5)
         self.modelsTable.setHorizontalHeaderLabels(["Path", "Name", "Parameters","Weights", "Layers"])
@@ -438,7 +555,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         self.modelsTable.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.modelsTable.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
 
-        for model in self.models.get("models", []):
+        for model in self.models:
             row = self.modelsTable.rowCount()
             self.modelsTable.insertRow(row)
             self.modelsTable.setItem(row, 0, QTableWidgetItem(model.get("path", "")))
@@ -446,6 +563,8 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             self.modelsTable.setItem(row, 2, QTableWidgetItem(str(model.get("parameters", ""))))
             self.modelsTable.setItem(row, 3, QTableWidgetItem(str(model.get("weights", ""))))
             self.modelsTable.setItem(row, 4, QTableWidgetItem(str(model.get("layers", ""))))
+
+            self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", model.get("path", "Unknown"))
 
         layout.addWidget(self.modelsTable)
         widget.setLayout(layout)
@@ -457,102 +576,27 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         file_dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
         if file_dialog.exec():
             file_path = file_dialog.selectedFiles()[0]
-            name = "Unknown"
-            parameters = "Unknown"
-            weights = "Unknown"
-            layers = "Unknown"
-
-            weights_map = {
-                0: "F32",
-                1: "F16",
-                2: "Q4_0",
-                3: "Q4_1",
-                4: "Q4_1_SOME_F16",
-                5: "Q4_2",
-                6: "Q4_3",
-                7: "Q8_0",
-                8: "Q5_0",
-                9: "Q5_1",
-                10: "Q2_K",
-                11: "Q3_K_S",
-                12: "Q3_K_M",
-                13: "Q3_K_L",
-                14: "Q4_K_S",
-                15: "Q4_K_M",
-                16: "Q5_K_S",
-                17: "Q5_K_M",
-                18: "Q6_K",
-                19: "IQ2_XSS",
-                20: "IQ2_XS",
-                21: "Q2_K_S",
-                22: "IQ3_XS",
-                23: "IQ3_XXS",
-                24: "IQ1_S",
-                25: "IQ4_NL",
-                26: "IQ3_S",
-                27: "IQ3_M",
-                28: "IQ2_S",
-                29: "IQ2_M",
-                30: "IQ4_XS",
-                31: "IQ1_M",
-                32: "BF16",
-                33: "Q4_0_4_4",
-                34: "Q4_0_4_8",
-                35: "Q4_0_8_8",
-                36: "TQ1_0",
-                37: "TQ2_0",
-                38: "MXFP4_MOE",
-                145: "IQ4_KS",
-                147: "IQ2_KS",
-                148: "IQ4_KSS",
-                150: "IQ5_KS",
-                154: "IQ3_KS",
-                155: "IQ2_KL",
-                156: "IQ1_KT"
-            }
-            
-            try:
-                model_info = GGUFReader(file_path)
-                for key, field in model_info.fields.items():
-                    if key == "general.name":
-                        name = str(self.maybe_decode(field.parts[field.data[0]]))
-                    elif key == "general.size_label":
-                        parameters = str(self.maybe_decode(field.parts[field.data[0]]))
-                    elif key == "general.file_type":
-                        weights = weights_map.get(self.maybe_decode(field.parts[field.data[0]]), f"Unknown ({field.data[0]})")
-                    elif key.endswith("block_count"):
-                        layers = str(self.maybe_decode(field.parts[field.data[0]]))
-
-                self.models.setdefault("models", []).append({
-                    "path": file_path,
-                    "name": name,
-                    "parameters": parameters,
-                    "weights": weights,
-                    "layers": layers
-                })
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to read model info: {e}")
-                return
-        self.refresh_models_table()
+            ggufRead = GGUFInfoWoker(file_path)
+            ggufRead.info_ready.connect(self.add_model_postworker)
+            ggufRead.start()
+            ggufRead.exec()
     
-    def maybe_decode(self, value):
-        # bytes or bytearray -> try UTF-8
-        if isinstance(value, (bytes, bytearray)):
-            return value.decode("utf-8", errors="replace")
+    def add_model_postworker(self, info):
+        file_path = info.get("path", "Unknown")
+        name = info.get("name", "Unknown")
+        parameters = info.get("parameters", "Unknown")
+        weights = info.get("weights", "Unknown")
+        layers = info.get("layers", "Unknown")
 
-        # numpy array of uint8 -> bytes -> UTF-8
-        if isinstance(value, np.ndarray) and value.dtype == np.uint8:
-            return value.tobytes().decode("utf-8", errors="replace")
+        self.models.append({
+            "path": file_path,
+            "name": name,
+            "parameters": parameters,
+            "weights": weights,
+            "layers": layers
+        })
 
-        # list/tuple of ints 0..255 -> bytes -> UTF-8
-        if isinstance(value, (list, tuple)) and value and all(isinstance(x, (int, np.integer)) and 0 <= int(x) <= 255 for x in value):
-            return bytes(value).decode("utf-8", errors="replace")
-
-        # list/tuple of bytes -> decode each
-        if isinstance(value, (list, tuple)) and value and all(isinstance(x, (bytes, bytearray)) for x in value):
-            return [x.decode("utf-8", errors="replace") for x in value]
-
-        return value[0]
+        self.refresh_models_table()
 
     def remove_model(self):
         selected_rows = self.modelsTable.selectionModel().selectedRows()
@@ -560,14 +604,17 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             QMessageBox.warning(self, "Warning", "No model selected.")
             return
         row = selected_rows[0].row()
-        del self.models["models"][row]
+        del self.models[row]
         self.refresh_models_table()
 
     def refresh_models_table(self):
         self.modelsTable.setRowCount(0)
-        if self.models.get("models") is None:
+        self.modelSelect.clear()
+        if not self.models:
+            with open("models.json", "w") as f:
+                json.dump({"models": []}, f, indent=4)
             return
-        for model in self.models.get("models", []):
+        for model in self.models:
             row = self.modelsTable.rowCount()
             self.modelsTable.insertRow(row)
             self.modelsTable.setItem(row, 0, QTableWidgetItem(model.get("path", "")))
@@ -575,8 +622,10 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             self.modelsTable.setItem(row, 2, QTableWidgetItem(str(model.get("parameters", ""))))
             self.modelsTable.setItem(row, 3, QTableWidgetItem(str(model.get("weights", ""))))
             self.modelsTable.setItem(row, 4, QTableWidgetItem(str(model.get("layers", ""))))
+
+            self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", model.get("path", "Unknown"))
         with open("models.json", "w") as f:
-            json.dump(self.models, f, indent=4)
+            json.dump({"models": self.models}, f, indent=4)
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
