@@ -3,9 +3,9 @@ import signal
 from PyQt6.QtWidgets import (
 	QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit, QLineEdit,
 	QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QFileDialog, QSplitter,
-    QDialog, QListWidget, QListWidgetItem, QInputDialog, QComboBox
+    QDialog, QListWidget, QListWidgetItem, QInputDialog, QComboBox, QCheckBox, QSlider, QFrame
 )
-from PyQt6.QtGui import QTextCursor, QPixmap, QCursor
+from PyQt6.QtGui import QTextCursor, QPixmap, QCursor, QIntValidator
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal, QItemSelectionModel, QEvent, QPoint
 import sys
 import requests
@@ -224,6 +224,15 @@ class App(QWidget):
         self.chatHistory = [{"role": "system", "content": "You are a helpful assistant."}]
         self.models = []
 
+        self.LLMSettings = {}
+        self.bpSettings = [
+            {'type': 'text', 'name': 'address', 'display': 'Address', 'default': '127.0.0.1'},
+            {'type': 'number', 'name': 'port', 'display': 'Port', 'default': '5175'},
+            {'type': 'slider', 'name': 'threads', 'display': 'CPU Threads', 'default': str(os.cpu_count())},
+            {'type': 'combo', 'name': 'gpu_layers', 'display': 'Layers on GPU', 'default': "All", 'options': ["Auto", "All", "0"]},
+            {'type': 'number', 'name': 'batch_size', 'display': 'Batch size', 'default': "512"}
+        ]
+
         self.mainLayout = QVBoxLayout()
         self.mainLayout.setContentsMargins(0, 0, 0, 0)
         self.mainLayout.setSpacing(0)
@@ -231,6 +240,7 @@ class App(QWidget):
         self.initTopBar()
         self.initChat()
         self.initModels()
+        self.initLLMSettings()
         self.mainLayout.addWidget(self.tabs)
         self.setLayout(self.mainLayout)
 
@@ -722,6 +732,102 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", model.get("path", "Unknown"))
         with open("models.json", "w") as f:
             json.dump({"models": self.models}, f, indent=4)
+
+    def initLLMSettings(self):
+        widget = QWidget()
+        layout = QVBoxLayout()
+        layout.setSpacing(6)
+        self.loadLLMSettings()
+
+        self.LLMSettingsTable = QTableWidget()
+        self.LLMSettingsTable.setColumnCount(2)
+        self.LLMSettingsTable.setHorizontalHeaderLabels(["Setting", "Value"])
+        self.LLMSettingsTable.horizontalHeader().setStretchLastSection(True)
+        self.LLMSettingsTable.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.LLMSettingsTable.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.LLMSettingsTable.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.LLMSettingsTable.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+
+        for setting in self.bpSettings:
+            row = self.LLMSettingsTable.rowCount()
+            self.LLMSettingsTable.insertRow(row)
+            self.LLMSettingsTable.setItem(row, 0, QTableWidgetItem(setting['display']))
+            value = ""
+            if setting['type'] == 'text':
+                value = QTableWidgetItem(self.LLMSettings[setting['name']])
+            elif setting['type'] == 'number':
+                value = QLineEdit()
+                value.setValidator(QIntValidator(1024, 65535, value))
+                value.setText(str(self.LLMSettings[setting['name']]))
+            elif setting['type'] == 'slider':
+                value = QFrame()
+                value_layout = QVBoxLayout()
+                value_layout.setContentsMargins(2, 2, 2, 2)
+                value_layout.setSpacing(2)
+                slider = QSlider(Qt.Orientation.Horizontal)
+                slider.setRange(1, os.cpu_count())
+                slider.setValue(int(self.LLMSettings[setting['name']]))
+                slider.setSingleStep(1)
+                slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+                slider.setTickInterval(10)
+                value_layout.addWidget(slider)
+                curr_label = QLabel(self.LLMSettings[setting['name']])
+                slider.valueChanged.connect(lambda curr_value, slider_el = slider, label=curr_label: self.update_slider(slider_el,label, curr_value))
+                value_layout.addWidget(curr_label)
+                value.setLayout(value_layout)
+                self.update_slider(slider, curr_label, slider.value())
+                value.adjustSize()
+            elif setting['type'] == 'combo':
+                value = QComboBox()
+                for option in setting['options']:
+                    value.addItem(option)
+                    if option == self.LLMSettings[setting['name']]:
+                        value.setCurrentText(option)
+            elif setting['type'] == 'checkbox':
+                value = QCheckBox()
+                value.setChecked(bool(self.LLMSettings[setting['name']]))
+            self.LLMSettingsTable.setCellWidget(row, 1, value) if not isinstance(value, QTableWidgetItem) else self.LLMSettingsTable.setItem(row, 1, value)
+            self.LLMSettingsTable.resizeRowToContents(row)
+        
+        layout.addWidget(self.LLMSettingsTable)
+
+        widget.setLayout(layout)
+        self.tabs.addTab(widget, "Settings")
+
+    def loadLLMSettings(self):
+        try:
+            with open("llm_settings.json", "r") as f:
+                settings_json = json.load(f)
+                self.LLMSettings = settings_json.get('settings', {})
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.LLMSettings = {}
+        
+        if not self.LLMSettings:
+            for setting in self.bpSettings:
+                self.LLMSettings[setting['name']] = setting['default']
+                print(setting['default'], type(setting['default']))
+            self.saveLLMSettings()
+
+    def saveLLMSettings(self):
+        try:
+            with open("llm_settings.json", "w") as f:
+                json.dump({"settings": self.LLMSettings}, f, indent=4)
+        except Exception as e:
+            print(f"Error saving LLM settings: {e}")
+
+    def update_slider(self, slider, label, value):
+        label.setText(str(value))
+        slider_width = slider.width() - slider.style().pixelMetric(slider.style().PixelMetric.PM_SliderLength)
+        if slider_width <= 0:
+            return
+
+        ratio = (value - slider.minimum()) / (slider.maximum() - slider.minimum())
+        handle_x = int(ratio * slider_width)
+
+        label_width = label.fontMetrics().boundingRect(label.text()).width()
+        x_offset = max(0, handle_x - label_width // 2)
+
+        label.setContentsMargins(x_offset, 0, 0, 0)
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)

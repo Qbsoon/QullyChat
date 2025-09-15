@@ -23,9 +23,9 @@ The idea was born out of my frustration with some things not available in LMStud
     - [ ] Model-bound settings edit
     - [ ] Make columns correct wideness
 - [ ] Generate requirements.txt
-- [ ] Add settings tab
+- [x] Add settings tab
     - [ ] Settings profiles
-    - [ ] Default settings
+    - [x] Default settings
     - [ ] System prompt profiles
     - [ ] System prompt changing in chat
     - [ ] Settings for statistics to show (incl. model used)
