@@ -379,13 +379,21 @@ class App(QWidget):
         return edges
     
     def model_changed(self, index):
-        model_path = self.modelSelect.itemData(index)
+        idx = self.modelSelect.itemData(index)
+        gpu_layers = self.LLMSettings.get('gpu_layers')
+        if gpu_layers == "Auto":
+            gpu_layers = int(self.models[int(idx)]['layers'])+1
+        elif gpu_layers == "All":
+            gpu_layers = int(self.models[int(idx)]['layers'])+1
+        elif gpu_layers == "0":
+            gpu_layers = 0
         options = {
-            'model_path': model_path,
-            'port': 5175,
-            'threads': 6,
-            'gpu_layers': 0,
-            'batch_size': 512
+            'model_path': self.models[int(idx)]['path'],
+            'address': self.LLMSettings['address'],
+            'port': self.LLMSettings['port'],
+            'threads': int(self.LLMSettings['threads']),
+            'gpu_layers': gpu_layers,
+            'batch_size': int(self.LLMSettings['batch_size'])
         }
         if hasattr(self, 'llama_thread') and self.llama_thread._is_running:
             self.llama_thread.stop()
@@ -418,6 +426,7 @@ class App(QWidget):
         try:
             self.save_chat()
             self.save_chat_list()
+            self.stop_llama_server()
         finally:
             self.close()
 
@@ -670,7 +679,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             self.modelsTable.setItem(row, 3, QTableWidgetItem(str(model.get("weights", ""))))
             self.modelsTable.setItem(row, 4, QTableWidgetItem(str(model.get("layers", ""))))
 
-            self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", model.get("path", "Unknown"))
+            self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", str(row))
 
         layout.addWidget(self.modelsTable)
         widget.setLayout(layout)
