@@ -27,9 +27,9 @@ The idea was born out of my frustration with some things not available in LMStud
     - [ ] Settings profiles
     - [x] Default settings
     - [ ] System prompt profiles
-    - [ ] System prompt changing in chat
     - [ ] Settings for statistics to show (incl. model used)
     - [ ] Settings for chat colors (not just color schemes)
+    - [ ] Adjust column wideness
 - [ ] Store statistics in chat file
 - [ ] Starting llama.cpp server in app
 - [ ] Try to preserve system prompt history

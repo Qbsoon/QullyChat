@@ -221,7 +221,8 @@ class App(QWidget):
         self.setMinimumSize(600, 338)
         self.setWindowTitle("Qully Chat")
 
-        self.chatHistory = [{"role": "system", "content": "You are a helpful assistant."}]
+        self.chatHistory = []
+        self.chatLegacyHistory = []
         self.models = []
 
         self.LLMSettings = {}
@@ -230,7 +231,8 @@ class App(QWidget):
             {'type': 'number', 'name': 'port', 'display': 'Port', 'default': '5175'},
             {'type': 'slider', 'name': 'threads', 'display': 'CPU Threads', 'default': str(os.cpu_count())},
             {'type': 'combo', 'name': 'gpu_layers', 'display': 'Layers on GPU', 'default': "All", 'options': ["Auto", "All", "0"]},
-            {'type': 'number', 'name': 'batch_size', 'display': 'Batch size', 'default': "512"}
+            {'type': 'number', 'name': 'batch_size', 'display': 'Batch size', 'default': "512"},
+            {'type': 'text', 'name': 'system_prompt', 'display': 'System prompt', 'default': 'You are a helpful assistant.'}
         ]
 
         self.mainLayout = QVBoxLayout()
@@ -263,6 +265,7 @@ class App(QWidget):
         layout.addStretch()
 
         centerPart = QHBoxLayout()
+        self.systempromptBtn = QPushButton("System Prompt")
         self.modelSelect = QComboBox(self.topBar)
         self.modelSelect.setToolTip("Select Model")
         self.modelSelect.setFixedHeight(24)
@@ -525,7 +528,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             title, ok = QInputDialog.getText(self, "New Chat", "Enter chat title:")
         if ok and title.strip():
             self.save_chat()
-            self.chatHistory = [{"role": "system", "content": "You are a helpful assistant."}]
+            self.chatHistory = [{"role": "system", "content": self.LLMSettings['system_prompt']}]
             chat = QListWidgetItem(title.strip())
             chat.setData(Qt.ItemDataRole.UserRole, f"chat_{self.chatList.count()}.json")
             self.chatList.addItem(chat)
@@ -600,13 +603,19 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 return
 
     def send_prompt(self):
+        for msg in self.chatHistory[::-1]:
+            if msg['role'] == 'system':
+                if msg['content'] != self.LLMSettings['system_prompt']:
+                    self.chatHistory.append({"role": "system", "content": self.LLMSettings['system_prompt']})
+                break
         prompt = self.chatInput.text().strip()
         self.chatHistory.append({"role": "user", "content": prompt})
         self.chatInput.clear()
         self.update_chat_display()
         self.chatDisplay.append(f'<b><span style="color: orange;">Assistant:</span></b> ')
+        self.convert_chat_toLegacy()
         QApplication.processEvents()
-        request = {"messages": self.chatHistory, "max_tokens": -1, "n_predict": -1, "stream": True}
+        request = {"messages": self.chatLegacyHistory, "max_tokens": -1, "n_predict": -1, "stream": True}
         self.worker = LLMWorker(request)
         self.worker.token_emit.connect(lambda token: self.chatDisplay.insertPlainText(token) or self.chatDisplay.moveCursor(QTextCursor.MoveOperation.End))
         self.worker.result_ready.connect(self.handle_reply)
@@ -614,6 +623,13 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         self.worker.start()
         self.worker.exec()
             
+    def convert_chat_toLegacy(self):
+        self.chatLegacyHistory = [self.chatHistory[0]]
+        for message in self.chatHistory:
+            if message['role'] == 'system':
+                self.chatLegacyHistory[0] = message
+            else:
+                self.chatLegacyHistory.append(message)
 
     def handle_reply(self, reply):
         self.chatHistory.append({"role": "assistant", "content": reply.split("</think>")[1]})
@@ -753,9 +769,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         self.LLMSettingsTable.setHorizontalHeaderLabels(["Setting", "Value"])
         self.LLMSettingsTable.horizontalHeader().setStretchLastSection(True)
         self.LLMSettingsTable.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.LLMSettingsTable.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.LLMSettingsTable.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.LLMSettingsTable.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.LLMSettingsTable.itemChanged.connect(self.llm_setting_changed)
 
         for setting in self.bpSettings:
             row = self.LLMSettingsTable.rowCount()
@@ -764,6 +780,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             value = ""
             if setting['type'] == 'text':
                 value = QTableWidgetItem(self.LLMSettings[setting['name']])
+                value.setData(Qt.ItemDataRole.UserRole, {"row": row, "name": setting['name']})
             elif setting['type'] == 'number':
                 value = QLineEdit()
                 value.setValidator(QIntValidator(1024, 65535, value))
@@ -802,19 +819,26 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 
         widget.setLayout(layout)
         self.tabs.addTab(widget, "Settings")
+    
+    def llm_setting_changed(self, item):
+        data = item.data(Qt.ItemDataRole.UserRole)
+        if data:
+            self.LLMSettings[data['name']] = item.text()
 
     def loadLLMSettings(self):
         try:
             with open("llm_settings.json", "r") as f:
                 settings_json = json.load(f)
                 self.LLMSettings = settings_json.get('settings', {})
+                for setting in self.bpSettings:
+                    if setting['name'] not in self.LLMSettings:
+                        self.LLMSettings[setting['name']] = setting['default']
         except (FileNotFoundError, json.JSONDecodeError):
             self.LLMSettings = {}
         
         if not self.LLMSettings:
             for setting in self.bpSettings:
                 self.LLMSettings[setting['name']] = setting['default']
-                print(setting['default'], type(setting['default']))
             self.saveLLMSettings()
 
     def saveLLMSettings(self):
