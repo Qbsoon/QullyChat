@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QDialog, QListWidget, QListWidgetItem, QInputDialog, QComboBox
 )
 from PyQt6.QtGui import QTextCursor, QPixmap, QCursor
-from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal, QItemSelectionModel, QEvent
+from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal, QItemSelectionModel, QEvent, QPoint
 import sys
 import requests
 import sseclient
@@ -258,6 +258,7 @@ class App(QWidget):
         self.modelSelect.setFixedHeight(24)
         self.modelSelect.setPlaceholderText("Select LLM Model")
         self.modelSelect.activated.connect(self.model_changed)
+        self.modelSelect.installEventFilter(self)
         centerPart.addWidget(self.modelSelect)
 
         modelStopBtn = QPushButton("⏏")
@@ -294,6 +295,11 @@ class App(QWidget):
         self.mainLayout.addWidget(self.topBar)
 
     def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Show and obj.metaObject().className() == "QComboBoxPrivateContainer":
+            c = obj.parent()
+            if isinstance(c, QComboBox) and c is getattr(self, "modelSelect", None):
+                obj.move(c.mapToGlobal(QPoint(0, c.height()))); obj.setMinimumWidth(c.width())
+        
         if obj is self.topBar:
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 pos_in_win = self.topBar.mapTo(self, event.position().toPoint())
@@ -383,6 +389,7 @@ class App(QWidget):
         if hasattr(self, 'llama_thread') and self.llama_thread._is_running:
             self.llama_thread.stop()
             self.llama_thread.wait()
+            self.modelSelect.setCurrentIndex(-1)
     
     def minimize(self):
         self.showMinimized()
