@@ -6,7 +6,7 @@ The idea was born out of my frustration with some things not available in LMStud
 ## Road-to-v1 TO-DO
 
 - [x] Implement chat window
-    - [ ] System prompt changing in chat
+    - [x] System prompt changing in chat
     - [x] LLM changing in chat
     - [ ] Show generate button when sent with no model selected & prompt to choose model
     - [ ] Move responses to separate boxes (User R-aligned, Assistant L-alligned, System C-alligned)

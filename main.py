@@ -266,6 +266,11 @@ class App(QWidget):
 
         centerPart = QHBoxLayout()
         self.systempromptBtn = QPushButton("System Prompt")
+        self.systempromptBtn.setToolTip("Edit System Prompt")
+        self.systempromptBtn.setFixedHeight(24)
+        self.systempromptBtn.clicked.connect(self.edit_system_prompt)
+        centerPart.addWidget(self.systempromptBtn)
+
         self.modelSelect = QComboBox(self.topBar)
         self.modelSelect.setToolTip("Select Model")
         self.modelSelect.setFixedHeight(24)
@@ -383,6 +388,7 @@ class App(QWidget):
     
     def model_changed(self, index):
         idx = self.modelSelect.itemData(index)
+        print(idx)
         gpu_layers = self.LLMSettings.get('gpu_layers')
         if gpu_layers == "Auto":
             gpu_layers = int(self.models[int(idx)]['layers'])+1
@@ -412,6 +418,12 @@ class App(QWidget):
             self.llama_thread.wait()
             self.modelSelect.setCurrentIndex(-1)
     
+    def edit_system_prompt(self):
+        text, ok = QInputDialog.getMultiLineText(self, "Edit System Prompt", "System Prompt:", self.LLMSettings['system_prompt'])
+        if ok and text.strip():
+            self.LLMSettings['system_prompt'] = text.strip()
+            self.saveLLMSettings()
+
     def minimize(self):
         self.showMinimized()
 
@@ -532,9 +544,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             chat = QListWidgetItem(title.strip())
             chat.setData(Qt.ItemDataRole.UserRole, f"chat_{self.chatList.count()}.json")
             self.chatList.addItem(chat)
+            self.save_chat(chat)
             self.chatList.setCurrentItem(chat, QItemSelectionModel.SelectionFlag.ClearAndSelect)
             self.update_chat_display()
-            self.save_chat()
             self.save_chat_list()
     
     def load_chat_list(self):
@@ -562,8 +574,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 self.chatHistory = [{"role": "system", "content": "You are a helpful assistant."}]
             self.update_chat_display()
     
-    def save_chat(self):
-        chat = self.chatList.currentItem()
+    def save_chat(self, chat = None):
+        if chat is None:
+            chat = self.chatList.currentItem()
         if chat:
             filename = chat.data(Qt.ItemDataRole.UserRole)
             try:
