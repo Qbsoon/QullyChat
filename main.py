@@ -265,12 +265,6 @@ class App(QWidget):
         layout.addStretch()
 
         centerPart = QHBoxLayout()
-        self.systempromptBtn = QPushButton("System Prompt")
-        self.systempromptBtn.setToolTip("Edit System Prompt")
-        self.systempromptBtn.setFixedHeight(24)
-        self.systempromptBtn.clicked.connect(self.edit_system_prompt)
-        centerPart.addWidget(self.systempromptBtn)
-
         self.modelSelect = QComboBox(self.topBar)
         self.modelSelect.setToolTip("Select Model")
         self.modelSelect.setFixedHeight(24)
@@ -417,12 +411,6 @@ class App(QWidget):
             self.llama_thread.stop()
             self.llama_thread.wait()
             self.modelSelect.setCurrentIndex(-1)
-    
-    def edit_system_prompt(self):
-        text, ok = QInputDialog.getMultiLineText(self, "Edit System Prompt", "System Prompt:", self.LLMSettings['system_prompt'])
-        if ok and text.strip():
-            self.LLMSettings['system_prompt'] = text.strip()
-            self.saveLLMSettings()
 
     def minimize(self):
         self.showMinimized()
@@ -485,6 +473,14 @@ class App(QWidget):
 
         chatWLayout = QVBoxLayout()
         chatWLayout.setSpacing(6)
+
+        chatWButtons = QHBoxLayout()
+        spBtn = QPushButton("System Prompt")
+        spBtn.setToolTip("Edit System Prompt")
+        spBtn.setFixedHeight(24)
+        spBtn.clicked.connect(self.edit_system_prompt)
+        chatWButtons.addWidget(spBtn)
+        chatWLayout.addLayout(chatWButtons)
 
         self.chatDisplay = QTextEdit()
         self.chatDisplay.setReadOnly(True)
@@ -593,6 +589,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         for i in range(self.chatList.count()):
             item = self.chatList.item(i)
             chats.append({"title": item.text(), "filename": item.data(Qt.ItemDataRole.UserRole)})
+        if not chats:
+            self.chatHistory = []
+            self.update_chat_display()
         try:
             with open("chats/chat_list.json", "w") as f:
                 json.dump({"chats": chats}, f, indent=4)
@@ -614,13 +613,21 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to delete chat file: {e}")
                 return
+    
+    def edit_system_prompt(self):
+        text, ok = QInputDialog.getMultiLineText(self, "Edit System Prompt", "System Prompt:", self.find_last_sp())
+        if ok and text.strip():
+            self.chatHistory.append({"role": "system", "content": text.strip()})
+            self.save_chat()
+            self.update_chat_display()
 
-    def send_prompt(self):
+    def find_last_sp(self):
         for msg in self.chatHistory[::-1]:
             if msg['role'] == 'system':
-                if msg['content'] != self.LLMSettings['system_prompt']:
-                    self.chatHistory.append({"role": "system", "content": self.LLMSettings['system_prompt']})
-                break
+                return msg['content']
+        return self.LLMSettings['system_prompt']
+
+    def send_prompt(self):
         prompt = self.chatInput.text().strip()
         self.chatHistory.append({"role": "user", "content": prompt})
         self.chatInput.clear()
