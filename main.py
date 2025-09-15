@@ -1,4 +1,5 @@
 import os
+import signal
 from PyQt6.QtWidgets import (
 	QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit, QLineEdit,
 	QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QFileDialog, QSplitter,
@@ -13,12 +14,57 @@ import json
 from markdown import markdown as md_to_html
 from gguf.gguf_reader import GGUFReader
 import numpy as np
+import subprocess
+import atexit
+import threading
 
 url = "http://127.0.0.1:5175/v1/chat/completions"
+
+class Llama_cpp(QThread):
+    def __init__(self, options):
+        super().__init__()
+        self.options = options
+        self._is_running = True
+
+    def run(self):
+        self._is_running = True
+        command = ["./llama/llama-server", "-m", self.options['model_path'], "--host", "127.0.0.1", "--port", str(self.options['port']), "-n", "-1"]
+        if self.options['threads'] > 0:
+            command += ["-t", str(self.options['threads'])]
+        if self.options['gpu_layers'] > 0:
+            command += ["--n-gpu-layers", str(self.options['gpu_layers'])]
+        if self.options['batch_size'] > 0:
+            command += ["-b", str(self.options['batch_size'])]
+        self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, text=True, encoding="utf-8")
+
+        atexit.register(self.process.terminate)
+
+    def stop(self):
+        self._is_running = False
+        try:
+            try:
+                self.process.send_signal(signal.SIGINT)
+                self.process.wait(timeout=1)
+                return
+            except subprocess.TimeoutExpired:
+                pass
+            
+            try:
+                self.process.terminate()
+                self.process.wait(timeout=1)
+                return
+            except subprocess.TimeoutExpired:
+                pass
+
+            self.process.kill()
+            self.process.wait(timeout=1)
+        except Exception as e:
+            print(f"Error terminating llama.cpp server: {e}")
 
 class LLMWorker(QThread):
     result_ready = pyqtSignal(str)
     token_emit = pyqtSignal(str)
+    error_emit = pyqtSignal(str)
 
     def __init__(self, request):
         super().__init__()
@@ -28,30 +74,33 @@ class LLMWorker(QThread):
 
     def run(self):
         self._is_running = True
-        response = requests.post(url, json=self.request, stream=True)
-        client = sseclient.SSEClient(response)
-        self.reply = ""
-        for event in client.events():
-            if event.data.strip() == "[DONE]":
-                break
-            try:
-                chunk = json.loads(event.data)
-                choices = chunk.get('choices', [])
-                if not choices:
-                    if "usage" in chunk or "timings" in chunk:
+        try:
+            response = requests.post(url, json=self.request, stream=True)
+            client = sseclient.SSEClient(response)
+            self.reply = ""
+            for event in client.events():
+                if event.data.strip() == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(event.data)
+                    choices = chunk.get('choices', [])
+                    if not choices:
+                        if "usage" in chunk or "timings" in chunk:
+                            continue
                         continue
+                    delta = choices[0].get('delta', {})
+                    token = delta.get('content')
+                    if token:
+                        self.reply += token
+                        self.token_emit.emit(token)
+                except (json.JSONDecodeError, KeyError):
                     continue
-                delta = choices[0].get('delta', {})
-                token = delta.get('content')
-                if token:
-                    self.reply += token
-                    self.token_emit.emit(token)
-            except (json.JSONDecodeError, KeyError):
-                continue
-        self.result_ready.emit(self.reply)
+            self.result_ready.emit(self.reply)
 
-        if not self._is_running:
-            return
+            if not self._is_running:
+                return
+        except Exception as e:
+            self.error_emit.emit(str(e))
         
     def stop(self):
         self._is_running = False
@@ -196,34 +245,50 @@ class App(QWidget):
         layout = QHBoxLayout(self.topBar)
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(6)
-        layout.addWidget(QLabel("Qully Chat", self.topBar))
+
+        leftPart = QHBoxLayout()
+        label = QLabel("Qully Chat")
+        leftPart.addWidget(label)
+        layout.addLayout(leftPart)
         layout.addStretch()
 
+        centerPart = QHBoxLayout()
         self.modelSelect = QComboBox(self.topBar)
         self.modelSelect.setToolTip("Select Model")
         self.modelSelect.setFixedHeight(24)
+        self.modelSelect.setPlaceholderText("Select LLM Model")
+        self.modelSelect.activated.connect(self.model_changed)
+        centerPart.addWidget(self.modelSelect)
 
-        layout.addWidget(self.modelSelect)
+        modelStopBtn = QPushButton("⏏")
+        modelStopBtn.setToolTip("Stop LLM Server")
+        modelStopBtn.setFixedSize(24, 18)
+        modelStopBtn.clicked.connect(self.stop_llama_server)
+        centerPart.addWidget(modelStopBtn)
+
+        layout.addLayout(centerPart)
         layout.addStretch()
 
+        rightPart = QHBoxLayout()
         self.minimizeBtn = QPushButton("-", self.topBar)
         self.minimizeBtn.setToolTip("Minimize")
         self.minimizeBtn.setFixedSize(32, 24)
         self.minimizeBtn.clicked.connect(self.minimize)
+        rightPart.addWidget(self.minimizeBtn)
 
         self.maximizeBtn = QPushButton("❐", self.topBar)
         self.maximizeBtn.setToolTip("Maximize")
         self.maximizeBtn.setFixedSize(32, 24)
         self.maximizeBtn.clicked.connect(self.toggle_maximize)
+        rightPart.addWidget(self.maximizeBtn)
 
         self.closeBtn = QPushButton("×", self.topBar)
         self.closeBtn.setToolTip("Close")
         self.closeBtn.setFixedSize(32, 24)
         self.closeBtn.clicked.connect(self.closeApp)
+        rightPart.addWidget(self.closeBtn)
 
-        layout.addWidget(self.minimizeBtn)
-        layout.addWidget(self.maximizeBtn)
-        layout.addWidget(self.closeBtn)
+        layout.addLayout(rightPart)
 
         self.topBar.installEventFilter(self)
         self.mainLayout.addWidget(self.topBar)
@@ -296,6 +361,28 @@ class App(QWidget):
         if y <= 6: edges |= Qt.Edge.TopEdge
         if y >= r.height() - 6: edges |= Qt.Edge.BottomEdge
         return edges
+    
+    def model_changed(self, index):
+        model_path = self.modelSelect.itemData(index)
+        options = {
+            'model_path': model_path,
+            'port': 5175,
+            'threads': 6,
+            'gpu_layers': 0,
+            'batch_size': 512
+        }
+        if hasattr(self, 'llama_thread') and self.llama_thread._is_running:
+            self.llama_thread.stop()
+            self.llama_thread.wait()
+        self.llama_thread = Llama_cpp(options)
+        self.llama_thread.start()
+        self.llama_thread.exec()
+        self.llama_thread.run()
+
+    def stop_llama_server(self):
+        if hasattr(self, 'llama_thread') and self.llama_thread._is_running:
+            self.llama_thread.stop()
+            self.llama_thread.wait()
     
     def minimize(self):
         self.showMinimized()
@@ -497,8 +584,10 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         self.worker = LLMWorker(request)
         self.worker.token_emit.connect(lambda token: self.chatDisplay.insertPlainText(token) or self.chatDisplay.moveCursor(QTextCursor.MoveOperation.End))
         self.worker.result_ready.connect(self.handle_reply)
+        self.worker.error_emit.connect(lambda e: self.chatDisplay.append(f'<b><span style="color: red;">Qully:</span></b> {e}'))
         self.worker.start()
         self.worker.exec()
+            
 
     def handle_reply(self, reply):
         self.chatHistory.append({"role": "assistant", "content": reply.split("</think>")[1]})
