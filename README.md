@@ -31,9 +31,8 @@ The idea was born out of my frustration with some things not available in LMStud
     - [ ] Settings for chat colors (not just color schemes)
     - [ ] Adjust column wideness
 - [ ] Store statistics in chat file
-- [ ] Starting llama.cpp server in app
-- [ ] Try to preserve system prompt history
-    - [ ] Separate variables for user-side chat history and server-side chat history
+- [x] Starting llama.cpp server in app
+- [x] Try to preserve system prompt history
 - [ ] Implement Image Generation in chat
 - [ ] Implement GenAI model list
 - [ ] Adjust settings tab for GenAI models
