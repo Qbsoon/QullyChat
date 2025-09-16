@@ -227,13 +227,14 @@ class App(QWidget):
 
         self.LLMSettings = {}
         self.bpSettings = [
-            {'type': 'text', 'name': 'address', 'display': 'Address', 'default': '127.0.0.1'},
-            {'type': 'number', 'name': 'port', 'display': 'Port', 'default': '5175'},
-            {'type': 'slider', 'name': 'threads', 'display': 'CPU Threads', 'default': str(os.cpu_count())},
-            {'type': 'combo', 'name': 'gpu_layers', 'display': 'Layers on GPU', 'default': "All", 'options': ["Auto", "All", "0"]},
-            {'type': 'number', 'name': 'batch_size', 'display': 'Batch size', 'default': "512"},
-            {'type': 'text', 'name': 'system_prompt', 'display': 'System prompt', 'default': 'You are a helpful assistant.'}
-        ]
+            {'type': 'text', 'name': 'address', 'display': 'Address', 'default': '127.0.0.1', 'use_case': [0]},
+            {'type': 'number', 'name': 'port', 'display': 'Port', 'default': '5175', 'use_case': [0]},
+            {'type': 'slider', 'name': 'threads', 'display': 'CPU Threads', 'default': "-1", 'min': 1, 'max': os.cpu_count(), 'use_case': [0, 1]},
+            {'type': 'combo', 'name': 'gpu_layers', 'display': 'Layers on GPU', 'default': "All", 'options': ["Auto", "All", "0"], 'use_case': [0]},
+            {'type': 'slider', 'name': 'gpu_layers', 'display': 'Layers on GPU', 'default': "-1", 'min': 0, 'max': 0, 'use_case': [1]},
+            {'type': 'number', 'name': 'batch_size', 'display': 'Batch size', 'default': "512", 'use_case': [0, 1]},
+            {'type': 'text', 'name': 'system_prompt', 'display': 'System prompt', 'default': 'You are a helpful assistant.', 'use_case': [0, 1]}
+        ]   # 0: llm settings tab; 1: llm model-specific settings
 
         self.mainLayout = QVBoxLayout()
         self.mainLayout.setContentsMargins(0, 0, 0, 0)
@@ -382,7 +383,6 @@ class App(QWidget):
     
     def model_changed(self, index):
         idx = self.modelSelect.itemData(index)
-        print(idx)
         gpu_layers = self.LLMSettings.get('gpu_layers')
         if gpu_layers == "Auto":
             gpu_layers = int(self.models[int(idx)]['layers'])+1
@@ -536,6 +536,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             title, ok = QInputDialog.getText(self, "New Chat", "Enter chat title:")
         if ok and title.strip():
             self.save_chat()
+            print(self.LLMSettings)
             self.chatHistory = [{"role": "system", "content": self.LLMSettings['system_prompt']}]
             chat = QListWidgetItem(title.strip())
             chat.setData(Qt.ItemDataRole.UserRole, f"chat_{self.chatList.count()}.json")
@@ -790,9 +791,38 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 
     def initLLMSettings(self):
         widget = QWidget()
-        layout = QVBoxLayout()
+        layout = QHBoxLayout()
         layout.setSpacing(6)
-        self.loadLLMSettings()
+
+        llmSLLayout = QVBoxLayout()
+        llmSLLayout.setSpacing(6)
+
+        llmSLTitle = QLabel("Settings profiles")
+        llmSLTitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        llmSLLayout.addWidget(llmSLTitle)
+
+        llmSLButtons = QHBoxLayout()
+        createSProfileBtn = QPushButton("+")
+        createSProfileBtn.setToolTip("Create a new settings profile")
+        createSProfileBtn.clicked.connect(self.create_new_settings)
+        llmSLButtons.addWidget(createSProfileBtn)
+
+        removeSProfileBtn = QPushButton("-")
+        removeSProfileBtn.setToolTip("Remove selected settings profiles")
+        removeSProfileBtn.clicked.connect(self.removeLLMSettings)
+        llmSLButtons.addWidget(removeSProfileBtn)
+
+        llmSLLayout.addLayout(llmSLButtons)
+
+        self.llmSettingsList = QListWidget()
+        self.llmSettingsList.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        self.llmSettingsList.currentItemChanged.connect(lambda: self.loadLLMSettings(type=0))
+
+        llmSLLayout.addWidget(self.llmSettingsList)
+        layout.addLayout(llmSLLayout, 20)
+
+        llmSWLayout = QVBoxLayout()
+        llmSWLayout.setSpacing(6)
 
         self.LLMSettingsTable = QTableWidget()
         self.LLMSettingsTable.setColumnCount(2)
@@ -803,80 +833,185 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         self.LLMSettingsTable.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.LLMSettingsTable.itemChanged.connect(self.llm_setting_changed)
 
-        for setting in self.bpSettings:
-            row = self.LLMSettingsTable.rowCount()
-            self.LLMSettingsTable.insertRow(row)
-            self.LLMSettingsTable.setItem(row, 0, QTableWidgetItem(setting['display']))
-            value = ""
-            if setting['type'] == 'text':
-                value = QTableWidgetItem(self.LLMSettings[setting['name']])
-                value.setData(Qt.ItemDataRole.UserRole, {"row": row, "name": setting['name']})
-            elif setting['type'] == 'number':
-                value = QLineEdit()
-                value.setValidator(QIntValidator(1024, 65535, value))
-                value.setText(str(self.LLMSettings[setting['name']]))
-            elif setting['type'] == 'slider':
-                value = QFrame()
-                value_layout = QVBoxLayout()
-                value_layout.setContentsMargins(2, 2, 2, 2)
-                value_layout.setSpacing(2)
-                slider = QSlider(Qt.Orientation.Horizontal)
-                slider.setRange(1, os.cpu_count())
-                slider.setValue(int(self.LLMSettings[setting['name']]))
-                slider.setSingleStep(1)
-                slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-                slider.setTickInterval(10)
-                value_layout.addWidget(slider)
-                curr_label = QLabel(self.LLMSettings[setting['name']])
-                slider.valueChanged.connect(lambda curr_value, slider_el = slider, label=curr_label: self.update_slider(slider_el,label, curr_value))
-                value_layout.addWidget(curr_label)
-                value.setLayout(value_layout)
-                self.update_slider(slider, curr_label, slider.value())
-                value.adjustSize()
-            elif setting['type'] == 'combo':
-                value = QComboBox()
-                for option in setting['options']:
-                    value.addItem(option)
-                    if option == self.LLMSettings[setting['name']]:
-                        value.setCurrentText(option)
-            elif setting['type'] == 'checkbox':
-                value = QCheckBox()
-                value.setChecked(bool(self.LLMSettings[setting['name']]))
-            self.LLMSettingsTable.setCellWidget(row, 1, value) if not isinstance(value, QTableWidgetItem) else self.LLMSettingsTable.setItem(row, 1, value)
-            self.LLMSettingsTable.resizeRowToContents(row)
-        
-        layout.addWidget(self.LLMSettingsTable)
-
+        llmSWLayout.addWidget(self.LLMSettingsTable)
+        layout.addLayout(llmSWLayout, 80)
         widget.setLayout(layout)
         self.tabs.addTab(widget, "Settings")
+        self.load_settings_list()
+        self.llmSettingsList.setCurrentRow(0)
     
-    def llm_setting_changed(self, item):
-        data = item.data(Qt.ItemDataRole.UserRole)
-        if data:
-            self.LLMSettings[data['name']] = item.text()
+    def create_new_settings(self, title=None):
+        ok = True
+        if isinstance(title, bool):
+            title = None
+        if title is None:
+            title, ok = QInputDialog.getText(self, "New Settings Profile", "Enter settings profile name:")
+        if ok and title.strip():
+            if self.llmSettingsList.count() == 0:
+                self.loadLLMSettings(type=-1)
+                settings = QListWidgetItem(title.strip())
+                settings.setData(Qt.ItemDataRole.UserRole, f"settings_llm_default.json")
+                self.llmSettingsList.addItem(settings)
+                self.saveLLMSettings(path=f"settings/{settings.data(Qt.ItemDataRole.UserRole)}", type=0)
+                self.llmSettingsList.setCurrentItem(settings, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+            else:
+                self.saveLLMSettings(type=0)
+                self.loadLLMSettings(type=-1)
+                settings = QListWidgetItem(title.strip())
+                settings.setData(Qt.ItemDataRole.UserRole, f"settings_llm_{self.llmSettingsList.count() - 1}.json")
+                self.llmSettingsList.addItem(settings)
+                self.saveLLMSettings(path=f"settings/{settings.data(Qt.ItemDataRole.UserRole)}", type=0)
+                self.llmSettingsList.setCurrentItem(settings, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+            self.save_settings_list()
+    
+    def llm_setting_changed(self, item, native=True):
+        if not native:
+            self.LLMSettings[item['name']] = item['value']
+        else:
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data:
+                self.LLMSettings[data['name']] = item.text()
+        self.saveLLMSettings(type=0)
 
-    def loadLLMSettings(self):
+
+    def load_settings_list(self):
         try:
-            with open("llm_settings.json", "r") as f:
+            with open("settings/settings_list.json", "r") as f:
+                settings_json = json.load(f)
+                if settings_json.get("settings") is None:
+                    self.create_new_settings("Default Settings")
+                    return
+                for settings in settings_json.get("settings", []):
+                    item = QListWidgetItem(settings.get("title", "Untitled Settings"))
+                    item.setData(Qt.ItemDataRole.UserRole, settings.get("filename", ""))
+                    self.llmSettingsList.addItem(item)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.create_new_settings("Default Settings")
+
+    def save_settings_list(self):
+        if not os.path.exists("settings"):
+            os.makedirs("settings")
+        settings = []
+        for i in range(self.llmSettingsList.count()):
+            item = self.llmSettingsList.item(i)
+            settings.append({"title": item.text(), "filename": item.data(Qt.ItemDataRole.UserRole)})
+        if not settings:
+            self.create_new_settings("Default Settings")
+            return
+        try:
+            with open("settings/settings_list.json", "w") as f:
+                json.dump({"settings": settings}, f, indent=4)
+        except Exception as e:
+            print(f"Error saving settings list: {e}")
+
+    def loadLLMSettings(self, path=None, type=0):
+        if type == 0 and self.llmSettingsList.currentItem() is None:
+            return
+        try:
+            if type == 0:
+                filename = self.llmSettingsList.currentItem().data(Qt.ItemDataRole.UserRole)
+                path = f"settings/{filename}"
+            if type == -1:
+                path = f"settings/settings_llm_default.json"
+            with open(f"{path}", "r") as f:
                 settings_json = json.load(f)
                 self.LLMSettings = settings_json.get('settings', {})
                 for setting in self.bpSettings:
-                    if setting['name'] not in self.LLMSettings:
+                    if setting['name'] not in self.LLMSettings and type in setting['use_case']:
                         self.LLMSettings[setting['name']] = setting['default']
-        except (FileNotFoundError, json.JSONDecodeError):
+                        self.saveLLMSettings(path=path, type=type)
+        except Exception as e:
             self.LLMSettings = {}
         
         if not self.LLMSettings:
             for setting in self.bpSettings:
-                self.LLMSettings[setting['name']] = setting['default']
-            self.saveLLMSettings()
+                if type in setting['use_case']:
+                    self.LLMSettings[setting['name']] = setting['default']
+            if type == -1:
+                return
+            self.saveLLMSettings(path=path, type=type)
 
-    def saveLLMSettings(self):
+        target = self.LLMSettingsTable
+        target.setRowCount(0)
+        for setting in self.bpSettings:
+            if type in setting['use_case']:
+                row = target.rowCount()
+                target.insertRow(row)
+                target.setItem(row, 0, QTableWidgetItem(setting['display']))
+                value = ""
+                if setting['type'] == 'text':
+                    value = QTableWidgetItem(self.LLMSettings[setting['name']])
+                    value.setData(Qt.ItemDataRole.UserRole, {"row": row, "name": setting['name']})
+                elif setting['type'] == 'number':
+                    value = QLineEdit()
+                    value.setValidator(QIntValidator(1024, 65535, value))
+                    value.setText(str(self.LLMSettings[setting['name']]))
+                    value.textChanged.connect(lambda text, name=setting['name']: self.llm_setting_changed({'value': text, "name": name}, native=False))
+                elif setting['type'] == 'slider':
+                    value = QFrame()
+                    value_layout = QVBoxLayout()
+                    value_layout.setContentsMargins(2, 2, 2, 2)
+                    value_layout.setSpacing(2)
+                    slider = QSlider(Qt.Orientation.Horizontal)
+                    slider.setRange(setting['min'], setting['max'])
+                    setvalue = int(self.LLMSettings[setting['name']])
+                    if setvalue == -1:
+                        setvalue = setting['max']
+                    slider.setValue(setvalue)
+                    slider.setSingleStep(1)
+                    slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+                    slider.setTickInterval(10)
+                    slider.setPageStep(2)
+                    value_layout.addWidget(slider)
+                    curr_label = QLabel(self.LLMSettings[setting['name']])
+                    slider.valueChanged.connect(lambda curr_value, slider_el = slider, label=curr_label: self.update_slider(slider_el,label, curr_value))
+                    value_layout.addWidget(curr_label)
+                    value.setLayout(value_layout)
+                    self.update_slider(slider, curr_label, slider.value())
+                    value.adjustSize()
+                    value.setWhatsThis(setting['name'])
+                elif setting['type'] == 'combo':
+                    value = QComboBox()
+                    for option in setting['options']:
+                        value.addItem(option)
+                        if option == self.LLMSettings[setting['name']]:
+                            value.setCurrentText(option) 
+                    value.currentTextChanged.connect(lambda text, name=setting['name']: self.llm_setting_changed({'value': text, "name": name},native=False))
+                elif setting['type'] == 'checkbox':
+                    value = QCheckBox()
+                    value.setChecked(bool(self.LLMSettings[setting['name']]))
+                    value.stateChanged.connect(lambda state, name=setting['name']: self.llm_setting_changed({'value': state, "name": name}, native=False)) 
+                target.setCellWidget(row, 1, value) if not isinstance(value, QTableWidgetItem) else target.setItem(row, 1, value)
+                target.resizeRowToContents(row)
+
+    def saveLLMSettings(self, path=None, type=0):
+        if self.llmSettingsList.count() == 0:
+            return
+        if not os.path.exists("settings"):
+            os.makedirs("settings")
+        if type == 0 and path is None:
+            filename = self.llmSettingsList.currentItem().data(Qt.ItemDataRole.UserRole)
+            path = f"settings/{filename}"
         try:
-            with open("llm_settings.json", "w") as f:
-                json.dump({"settings": self.LLMSettings}, f, indent=4)
+            with open(f"{path}", "w") as f:
+                json.dump({"settings": self.LLMSettings, "type": type}, f, indent=4)
         except Exception as e:
             print(f"Error saving LLM settings: {e}")
+
+    def removeLLMSettings(self):
+        selected_items = self.llmSettingsList.selectedItems()
+        if not selected_items:
+            return
+        
+        for settings in selected_items:
+            self.llmSettingsList.takeItem(self.llmSettingsList.row(settings))
+            filename = settings.data(Qt.ItemDataRole.UserRole)
+            try:
+                os.remove("settings/" + filename)
+                self.save_settings_list()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to delete settings file: {e}")
+                return
 
     def update_slider(self, slider, label, value):
         label.setText(str(value))
@@ -891,6 +1026,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         x_offset = max(0, handle_x - label_width // 2)
 
         label.setContentsMargins(x_offset, 0, 0, 0)
+
+        self.LLMSettings[slider.whatsThis()] = str(value)
+        self.saveLLMSettings(type=0)
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)

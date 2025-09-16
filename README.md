@@ -23,6 +23,9 @@ The idea was born out of my frustration with some things not available in LMStud
 - [x] Implement LLM model list
     - [ ] Model-bound settings edit
     - [ ] Make columns correct wideness
+    - [ ] Add more info
+    - [ ] Models sorting
+    - [ ] Models grouping (by same family, by same model and different weights/parameters)
 - [ ] Generate requirements.txt
 - [x] Add settings tab
     - [ ] Settings profiles
@@ -31,6 +34,7 @@ The idea was born out of my frustration with some things not available in LMStud
     - [ ] Settings for statistics to show (incl. model used)
     - [ ] Settings for chat colors (not just color schemes)
     - [ ] Adjust column wideness
+    - [ ] Add more settings
 - [ ] Store statistics in chat file
 - [x] Starting llama.cpp server in app
 - [x] Try to preserve system prompt history
