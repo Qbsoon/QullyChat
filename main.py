@@ -615,8 +615,14 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 return
     
     def edit_system_prompt(self):
+        replace = False
+        if self.chatList.count() == 0:
+            replace = True
         text, ok = QInputDialog.getMultiLineText(self, "Edit System Prompt", "System Prompt:", self.find_last_sp())
         if ok and text.strip():
+            if replace == True:
+                self.create_new_chat("Default Chat")
+                self.chatHistory = []
             self.chatHistory.append({"role": "system", "content": text.strip()})
             self.save_chat()
             self.update_chat_display()
@@ -629,6 +635,10 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 
     def send_prompt(self):
         prompt = self.chatInput.text().strip()
+        if not prompt:
+            return
+        if self.chatList.count() == 0:
+            self.create_new_chat("Default Chat")
         self.chatHistory.append({"role": "user", "content": prompt})
         self.chatInput.clear()
         self.update_chat_display()
