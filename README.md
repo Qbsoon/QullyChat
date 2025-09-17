@@ -9,6 +9,7 @@ The idea was born out of my frustration with some things not available in LMStud
     - [x] System prompt changing in chat
     - [x] LLM changing in chat
     - [ ] Choosing settings profile next to the LLM in topbar
+    - [ ] Chat-bound settings edit (3 layers of settings: Chat > Model > Profile)
     - [ ] Show generate button when sent with no model selected & prompt to choose model
     - [ ] Move responses to separate boxes (User R-aligned, Assistant L-alligned, System C-alligned)
     - [ ] Add copy button
