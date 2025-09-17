@@ -3,7 +3,8 @@ import signal
 from PyQt6.QtWidgets import (
 	QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit, QLineEdit,
 	QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QFileDialog, QSplitter,
-    QDialog, QListWidget, QListWidgetItem, QInputDialog, QComboBox, QCheckBox, QSlider, QFrame
+    QDialog, QListWidget, QListWidgetItem, QInputDialog, QComboBox, QCheckBox, QSlider, QFrame,
+    QRadioButton
 )
 from PyQt6.QtGui import QTextCursor, QPixmap, QCursor, QIntValidator
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal, QItemSelectionModel, QEvent, QPoint
@@ -227,6 +228,7 @@ class App(QWidget):
 
         self.LLMSettings = {}
         self.bpSettings = [
+            {'type': 'radiobutton', 'name': 'model_settings', 'display': 'Use model settings', 'default': False, 'use_case': [1]},
             {'type': 'text', 'name': 'address', 'display': 'Address', 'default': '127.0.0.1', 'use_case': [0]},
             {'type': 'number', 'name': 'port', 'display': 'Port', 'default': '5175', 'use_case': [0]},
             {'type': 'slider', 'name': 'threads', 'display': 'CPU Threads', 'default': "-1", 'min': 1, 'max': os.cpu_count(), 'use_case': [0, 1]},
@@ -697,8 +699,11 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         addModelBtn.clicked.connect(self.add_model)
         removeModelBtn = QPushButton("Remove Model")
         removeModelBtn.clicked.connect(self.remove_model)
+        settingsModelBtn = QPushButton("Model Settings")
+        settingsModelBtn.clicked.connect(self.settings_model)
         buttonsSec.addWidget(addModelBtn)
         buttonsSec.addWidget(removeModelBtn)
+        buttonsSec.addWidget(settingsModelBtn)
         layout.addLayout(buttonsSec)
 
         try:
@@ -708,6 +713,8 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         except (FileNotFoundError, json.JSONDecodeError):
             self.models = []
 
+        modelsLayout = QHBoxLayout()
+
         self.modelsTable = QTableWidget()
         self.modelsTable.setColumnCount(5)
         self.modelsTable.setHorizontalHeaderLabels(["Path", "Name", "Parameters","Weights", "Layers"])
@@ -716,6 +723,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         self.modelsTable.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.modelsTable.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.modelsTable.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.modelsTable.itemSelectionChanged.connect(lambda: self.settings_model(change=True))
 
         for model in self.models:
             row = self.modelsTable.rowCount()
@@ -728,7 +736,22 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 
             self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", str(row))
 
-        layout.addWidget(self.modelsTable)
+        modelsLayout.addWidget(self.modelsTable, 65)
+
+        modelSettingsLayout = QVBoxLayout()
+
+        self.LLMModelSettingsTable = QTableWidget()
+        self.LLMModelSettingsTable.setColumnCount(2)
+        self.LLMModelSettingsTable.setHorizontalHeaderLabels(["Setting", "Value"])
+        self.LLMModelSettingsTable.horizontalHeader().setStretchLastSection(True)
+        self.LLMModelSettingsTable.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.LLMModelSettingsTable.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.LLMModelSettingsTable.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.LLMModelSettingsTable.itemChanged.connect(self.llm_setting_changed)
+        self.LLMModelSettingsTable.setVisible(False)
+        modelsLayout.addWidget(self.LLMModelSettingsTable, 35)
+
+        layout.addLayout(modelsLayout)
         widget.setLayout(layout)
         self.tabs.addTab(widget, "Models")
 
@@ -768,6 +791,46 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         row = selected_rows[0].row()
         del self.models[row]
         self.refresh_models_table()
+
+    def settings_model(self, change=False):
+        if self.LLMModelSettingsTable.isVisible() and not change:
+            self.LLMModelSettingsTable.setVisible(False)
+            return
+        if not self.LLMModelSettingsTable.isVisible() and change:
+            return
+        
+        self.LLMModelSettingsTable.setVisible(True)
+        
+        selected_rows = self.modelsTable.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "Warning", "No model selected.")
+            return
+        row = selected_rows[0].row()
+        model = self.models[row]
+        for setting in self.bpSettings:
+            if setting['name'] == 'gpu_layers' and 1 in setting['use_case']:
+                setting['max'] = int(model.get("layers", "0")) + 1
+        self.loadLLMSettings(path=model.get("path", ""), type=1)
+
+    def model_settings_switcher(self, checked):
+        if checked:
+            for row in range(1, self.LLMModelSettingsTable.rowCount()):
+                widget = self.LLMModelSettingsTable.cellWidget(row, 1)
+                if widget:
+                    widget.setDisabled(True)
+                else:
+                    item = self.LLMModelSettingsTable.item(row, 1)
+                    if item:
+                        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+        else:
+            for row in range(1, self.LLMModelSettingsTable.rowCount()):
+                widget = self.LLMModelSettingsTable.cellWidget(row, 1)
+                if widget:
+                    widget.setDisabled(False)
+                else:
+                    item = self.LLMModelSettingsTable.item(row, 1)
+                    if item:
+                        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEnabled)
 
     def refresh_models_table(self):
         self.modelsTable.setRowCount(0)
@@ -864,14 +927,16 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 self.llmSettingsList.setCurrentItem(settings, QItemSelectionModel.SelectionFlag.ClearAndSelect)
             self.save_settings_list()
     
-    def llm_setting_changed(self, item, native=True):
+    def llm_setting_changed(self, item, native=True, path=None, type=0):
         if not native:
             self.LLMSettings[item['name']] = item['value']
         else:
             data = item.data(Qt.ItemDataRole.UserRole)
             if data:
                 self.LLMSettings[data['name']] = item.text()
-        self.saveLLMSettings(type=0)
+                path = data['path']
+                type = data['type']
+        self.saveLLMSettings(path=path, type=type)
 
 
     def load_settings_list(self):
@@ -913,6 +978,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 path = f"settings/{filename}"
             if type == -1:
                 path = f"settings/settings_llm_default.json"
+            if type == 1:
+                path = path[:-5]
+                path = f"{path}.json"
             with open(f"{path}", "r") as f:
                 settings_json = json.load(f)
                 self.LLMSettings = settings_json.get('settings', {})
@@ -931,22 +999,28 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 return
             self.saveLLMSettings(path=path, type=type)
 
-        target = self.LLMSettingsTable
+        target = None
+        if type == 0:
+            target = self.LLMSettingsTable
+        elif type == 1:
+            target = self.LLMModelSettingsTable
         target.setRowCount(0)
         for setting in self.bpSettings:
             if type in setting['use_case']:
                 row = target.rowCount()
                 target.insertRow(row)
-                target.setItem(row, 0, QTableWidgetItem(setting['display']))
+                label = QTableWidgetItem(setting['display'])
+                label.setFlags(label.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                target.setItem(row, 0, label)
                 value = ""
                 if setting['type'] == 'text':
                     value = QTableWidgetItem(self.LLMSettings[setting['name']])
-                    value.setData(Qt.ItemDataRole.UserRole, {"row": row, "name": setting['name']})
+                    value.setData(Qt.ItemDataRole.UserRole, {"row": row, "name": setting['name'], "path": path, "type": type})
                 elif setting['type'] == 'number':
                     value = QLineEdit()
                     value.setValidator(QIntValidator(1024, 65535, value))
                     value.setText(str(self.LLMSettings[setting['name']]))
-                    value.textChanged.connect(lambda text, name=setting['name']: self.llm_setting_changed({'value': text, "name": name}, native=False))
+                    value.textChanged.connect(lambda text, name=setting['name']: self.llm_setting_changed({'value': text, "name": name}, native=False, path=path, type=type))
                 elif setting['type'] == 'slider':
                     value = QFrame()
                     value_layout = QVBoxLayout()
@@ -964,7 +1038,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                     slider.setPageStep(2)
                     value_layout.addWidget(slider)
                     curr_label = QLabel(self.LLMSettings[setting['name']])
-                    slider.valueChanged.connect(lambda curr_value, slider_el = slider, label=curr_label: self.update_slider(slider_el,label, curr_value))
+                    slider.valueChanged.connect(lambda curr_value, slider_el = slider, label=curr_label: self.update_slider(slider_el,label, curr_value, path=path, type=type))
                     value_layout.addWidget(curr_label)
                     value.setLayout(value_layout)
                     self.update_slider(slider, curr_label, slider.value())
@@ -976,11 +1050,19 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                         value.addItem(option)
                         if option == self.LLMSettings[setting['name']]:
                             value.setCurrentText(option) 
-                    value.currentTextChanged.connect(lambda text, name=setting['name']: self.llm_setting_changed({'value': text, "name": name},native=False))
+                    value.currentTextChanged.connect(lambda text, name=setting['name']: self.llm_setting_changed({'value': text, "name": name},native=False, path=path, type=type))
                 elif setting['type'] == 'checkbox':
                     value = QCheckBox()
                     value.setChecked(bool(self.LLMSettings[setting['name']]))
-                    value.stateChanged.connect(lambda state, name=setting['name']: self.llm_setting_changed({'value': state, "name": name}, native=False)) 
+                    value.stateChanged.connect(lambda state, name=setting['name']: self.llm_setting_changed({'value': state, "name": name}, native=False, path=path, type=type))
+                elif setting['type'] == 'radiobutton':
+                    value = QRadioButton()
+                    value.setChecked(bool(self.LLMSettings[setting['name']]))
+                    value.toggled.connect(lambda checked, name=setting['name']: self.llm_setting_changed({'value': checked, "name": name}, native=False, path=path, type=type))
+                    if setting['name'] == 'model_settings':
+                        value.setToolTip("When turned on, it uses model settings for model instead of profile settings.")
+                        value.toggled.connect(lambda checked: self.model_settings_switcher(checked))
+
                 target.setCellWidget(row, 1, value) if not isinstance(value, QTableWidgetItem) else target.setItem(row, 1, value)
                 target.resizeRowToContents(row)
 
@@ -992,6 +1074,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         if type == 0 and path is None:
             filename = self.llmSettingsList.currentItem().data(Qt.ItemDataRole.UserRole)
             path = f"settings/{filename}"
+        if type == 1:
+            path = path[:-5]
+            path = f"{path}.json"
         try:
             with open(f"{path}", "w") as f:
                 json.dump({"settings": self.LLMSettings, "type": type}, f, indent=4)
@@ -1013,7 +1098,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 QMessageBox.critical(self, "Error", f"Failed to delete settings file: {e}")
                 return
 
-    def update_slider(self, slider, label, value):
+    def update_slider(self, slider, label, value, path=None, type=0):
         label.setText(str(value))
         slider_width = slider.width() - slider.style().pixelMetric(slider.style().PixelMetric.PM_SliderLength)
         if slider_width <= 0:
@@ -1028,7 +1113,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         label.setContentsMargins(x_offset, 0, 0, 0)
 
         self.LLMSettings[slider.whatsThis()] = str(value)
-        self.saveLLMSettings(type=0)
+        self.saveLLMSettings(path=path, type=type)
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)

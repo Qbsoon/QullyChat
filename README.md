@@ -8,6 +8,7 @@ The idea was born out of my frustration with some things not available in LMStud
 - [x] Implement chat window
     - [x] System prompt changing in chat
     - [x] LLM changing in chat
+    - [ ] Choosing settings profile next to the LLM in topbar
     - [ ] Show generate button when sent with no model selected & prompt to choose model
     - [ ] Move responses to separate boxes (User R-aligned, Assistant L-alligned, System C-alligned)
     - [ ] Add copy button
@@ -21,14 +22,15 @@ The idea was born out of my frustration with some things not available in LMStud
     - [ ] Export chat
     - [ ] Renaming chats
 - [x] Implement LLM model list
-    - [ ] Model-bound settings edit
+    - [x] Model-bound settings edit
     - [ ] Make columns correct wideness
     - [ ] Add more info
     - [ ] Models sorting
     - [ ] Models grouping (by same family, by same model and different weights/parameters)
+    - [ ] Models filtering
 - [ ] Generate requirements.txt
 - [x] Add settings tab
-    - [ ] Settings profiles
+    - [x] Settings profiles
     - [x] Default settings
     - [ ] System prompt profiles
     - [ ] Settings for statistics to show (incl. model used)
