@@ -393,7 +393,15 @@ class App(QWidget):
         return edges
     
     def model_changed(self, index):
-        idx = self.modelSelect.itemData(index)
+        settings_set = 0
+        ### if chat_has_settings settings_set = 1
+        idx = self.modelSelect.itemData(index)['row']
+        if settings_set == 0:
+            self.loadLLMSettings(path=self.models[int(idx)].get("path", ""), type=1, display=0)
+            if self.LLMSettings.get('model_settings', False) == True:
+                settings_set = 1
+        if settings_set == 0:
+            self.loadLLMSettings(path=f"settings/{self.profileSelect.currentData()}", type=0, display=0)
         gpu_layers = self.LLMSettings.get('gpu_layers')
         if gpu_layers == "Auto":
             gpu_layers = int(self.models[int(idx)]['layers'])+1
@@ -402,13 +410,14 @@ class App(QWidget):
         elif gpu_layers == "0":
             gpu_layers = 0
         options = {
-            'model_path': self.models[int(idx)]['path'],
+            'model_path': self.modelSelect.currentData()['path'],
             'address': self.LLMSettings['address'],
             'port': self.LLMSettings['port'],
             'threads': int(self.LLMSettings['threads']),
             'gpu_layers': gpu_layers,
             'batch_size': int(self.LLMSettings['batch_size'])
         }
+        print(options)
         if hasattr(self, 'llama_thread') and self.llama_thread._is_running:
             self.llama_thread.stop()
             self.llama_thread.wait()
@@ -742,7 +751,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             self.modelsTable.setItem(row, 3, QTableWidgetItem(str(model.get("weights", ""))))
             self.modelsTable.setItem(row, 4, QTableWidgetItem(str(model.get("layers", ""))))
 
-            self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", str(row))
+            self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", {"row": str(row), "path": model.get("path", "")})
 
         modelsLayout.addWidget(self.modelsTable, 65)
 
@@ -854,7 +863,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             self.modelsTable.setItem(row, 3, QTableWidgetItem(str(model.get("weights", ""))))
             self.modelsTable.setItem(row, 4, QTableWidgetItem(str(model.get("layers", ""))))
 
-            self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", model.get("path", "Unknown"))
+            self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", )
         with open("models.json", "w") as f:
             json.dump({"models": self.models}, f, indent=4)
 
@@ -981,11 +990,11 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         except Exception as e:
             print(f"Error saving settings list: {e}")
 
-    def loadLLMSettings(self, path=None, type=0):
+    def loadLLMSettings(self, path=None, type=0, display=1):
         if type == 0 and self.llmSettingsList.currentItem() is None:
             return
         try:
-            if type == 0:
+            if type == 0 and path is None:
                 filename = self.llmSettingsList.currentItem().data(Qt.ItemDataRole.UserRole)
                 path = f"settings/{filename}"
             if type == -1:
@@ -1011,7 +1020,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 return
             self.saveLLMSettings(path=path, type=type)
         
-        if type == -1:
+        if type == -1 or display == 0:
             return
 
         target = None
