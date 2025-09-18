@@ -282,6 +282,13 @@ class App(QWidget):
         modelStopBtn.clicked.connect(self.stop_llama_server)
         centerPart.addWidget(modelStopBtn)
 
+        self.profileSelect = QComboBox(self.topBar)
+        self.profileSelect.setToolTip("Select Profile")
+        self.profileSelect.setFixedHeight(24)
+        self.profileSelect.setPlaceholderText("Select Profile")
+        self.profileSelect.installEventFilter(self)
+        centerPart.addWidget(self.profileSelect)
+
         layout.addLayout(centerPart)
         layout.addStretch()
 
@@ -313,6 +320,8 @@ class App(QWidget):
         if event.type() == QEvent.Type.Show and obj.metaObject().className() == "QComboBoxPrivateContainer":
             c = obj.parent()
             if isinstance(c, QComboBox) and c is getattr(self, "modelSelect", None):
+                obj.move(c.mapToGlobal(QPoint(0, c.height()))); obj.setMinimumWidth(c.width())
+            elif isinstance(c, QComboBox) and c is getattr(self, "profileSelect", None):
                 obj.move(c.mapToGlobal(QPoint(0, c.height()))); obj.setMinimumWidth(c.width())
         
         if obj is self.topBar:
@@ -737,8 +746,6 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 
         modelsLayout.addWidget(self.modelsTable, 65)
 
-        modelSettingsLayout = QVBoxLayout()
-
         self.LLMModelSettingsTable = QTableWidget()
         self.LLMModelSettingsTable.setColumnCount(2)
         self.LLMModelSettingsTable.setHorizontalHeaderLabels(["Setting", "Value"])
@@ -916,6 +923,8 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 self.llmSettingsList.addItem(settings)
                 self.saveLLMSettings(path=f"settings/{settings.data(Qt.ItemDataRole.UserRole)}", type=0)
                 self.llmSettingsList.setCurrentItem(settings, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+                self.profileSelect.addItem(title, settings.data(Qt.ItemDataRole.UserRole))
+                self.profileSelect.setCurrentIndex(0)
             else:
                 self.saveLLMSettings(type=0)
                 self.loadLLMSettings(type=-1)
@@ -924,6 +933,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 self.llmSettingsList.addItem(settings)
                 self.saveLLMSettings(path=f"settings/{settings.data(Qt.ItemDataRole.UserRole)}", type=0)
                 self.llmSettingsList.setCurrentItem(settings, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+                self.profileSelect.addItem(title, settings.data(Qt.ItemDataRole.UserRole))
             self.save_settings_list()
     
     def llm_setting_changed(self, item, native=True, path=None, type=0):
@@ -949,6 +959,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                     item = QListWidgetItem(settings.get("title", "Untitled Settings"))
                     item.setData(Qt.ItemDataRole.UserRole, settings.get("filename", ""))
                     self.llmSettingsList.addItem(item)
+                    self.profileSelect.addItem(settings.get("title", "Untitled Settings"), settings.get("filename", ""))
+                if self.profileSelect.count() > 0:
+                    self.profileSelect.setCurrentIndex(0)
         except (FileNotFoundError, json.JSONDecodeError):
             self.create_new_settings("Default Settings")
 
@@ -997,6 +1010,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             if type == -1:
                 return
             self.saveLLMSettings(path=path, type=type)
+        
+        if type == -1:
+            return
 
         target = None
         if type == 0:
@@ -1091,6 +1107,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         
         for settings in selected_items:
             self.llmSettingsList.takeItem(self.llmSettingsList.row(settings))
+            self.profileSelect.removeItem(self.profileSelect.findData(settings.data(Qt.ItemDataRole.UserRole)))
             filename = settings.data(Qt.ItemDataRole.UserRole)
             try:
                 os.remove("settings/" + filename)
