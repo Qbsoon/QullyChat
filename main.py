@@ -538,7 +538,6 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             title, ok = QInputDialog.getText(self, "New Chat", "Enter chat title:")
         if ok and title.strip():
             self.save_chat()
-            print(self.LLMSettings)
             self.chatHistory = [{"role": "system", "content": self.LLMSettings['system_prompt']}]
             chat = QListWidgetItem(title.strip())
             chat.setData(Qt.ItemDataRole.UserRole, f"chat_{self.chatList.count()}.json")
@@ -813,7 +812,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         self.loadLLMSettings(path=model.get("path", ""), type=1)
 
     def model_settings_switcher(self, checked):
-        if checked:
+        if not checked:
             for row in range(1, self.LLMModelSettingsTable.rowCount()):
                 widget = self.LLMModelSettingsTable.cellWidget(row, 1)
                 if widget:
@@ -1036,6 +1035,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                     slider.setTickPosition(QSlider.TickPosition.TicksBelow)
                     slider.setTickInterval(10)
                     slider.setPageStep(2)
+                    slider.setWhatsThis(setting['name'])
                     value_layout.addWidget(slider)
                     curr_label = QLabel(self.LLMSettings[setting['name']])
                     slider.valueChanged.connect(lambda curr_value, slider_el = slider, label=curr_label: self.update_slider(slider_el,label, curr_value, path=path, type=type))
@@ -1043,7 +1043,6 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                     value.setLayout(value_layout)
                     self.update_slider(slider, curr_label, slider.value())
                     value.adjustSize()
-                    value.setWhatsThis(setting['name'])
                 elif setting['type'] == 'combo':
                     value = QComboBox()
                     for option in setting['options']:
@@ -1058,13 +1057,15 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 elif setting['type'] == 'radiobutton':
                     value = QRadioButton()
                     value.setChecked(bool(self.LLMSettings[setting['name']]))
-                    value.toggled.connect(lambda checked, name=setting['name']: self.llm_setting_changed({'value': checked, "name": name}, native=False, path=path, type=type))
                     if setting['name'] == 'model_settings':
                         value.setToolTip("When turned on, it uses model settings for model instead of profile settings.")
                         value.toggled.connect(lambda checked: self.model_settings_switcher(checked))
+                    value.toggled.connect(lambda checked, name=setting['name']: self.llm_setting_changed({'value': checked, "name": name}, native=False, path=path, type=type))
 
                 target.setCellWidget(row, 1, value) if not isinstance(value, QTableWidgetItem) else target.setItem(row, 1, value)
                 target.resizeRowToContents(row)
+        if type == 1:
+            self.model_settings_switcher(self.LLMSettings.get('model_settings', False))
 
     def saveLLMSettings(self, path=None, type=0):
         if self.llmSettingsList.count() == 0:
