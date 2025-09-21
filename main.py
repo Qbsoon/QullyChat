@@ -486,6 +486,7 @@ class App(QWidget):
 
         self.chatList = QListWidget()
         self.chatList.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        self.chatList.itemChanged.connect(self.save_chat_list)
         self.chatList.currentItemChanged.connect(self.load_chat)
 
         chatLLayout.addWidget(self.chatList)
@@ -559,6 +560,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             self.chatHistory = [{"role": "system", "content": self.LLMSettings['system_prompt']}]
             chat = QListWidgetItem(title.strip())
             chat.setData(Qt.ItemDataRole.UserRole, f"chat_{self.chatList.count()}.json")
+            chat.setFlags(chat.flags() | Qt.ItemFlag.ItemIsEditable)
             self.chatList.addItem(chat)
             self.save_chat(chat)
             self.chatList.setCurrentItem(chat, QItemSelectionModel.SelectionFlag.ClearAndSelect)
@@ -575,6 +577,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 for chat in chats.get("chats", []):
                     item = QListWidgetItem(chat.get("title", "Untitled Chat"))
                     item.setData(Qt.ItemDataRole.UserRole, chat.get("filename", ""))
+                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
                     self.chatList.addItem(item)
         except (FileNotFoundError, json.JSONDecodeError):
             self.create_new_chat("Default Chat")
@@ -900,6 +903,8 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         self.llmSettingsList = QListWidget()
         self.llmSettingsList.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.llmSettingsList.currentItemChanged.connect(lambda: self.loadLLMSettings(type=0))
+        self.llmSettingsList.itemChanged.connect(self.save_settings_list)
+        self.llmSettingsList.itemChanged.connect(lambda: self.reload_settings_select(save_selection=True))
 
         llmSLLayout.addWidget(self.llmSettingsList)
         layout.addLayout(llmSLLayout, 20)
@@ -934,6 +939,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 self.loadLLMSettings(type=-1)
                 settings = QListWidgetItem(title.strip())
                 settings.setData(Qt.ItemDataRole.UserRole, f"settings_llm_default.json")
+                settings.setFlags(settings.flags() | Qt.ItemFlag.ItemIsEditable)
                 self.llmSettingsList.addItem(settings)
                 self.saveLLMSettings(path=f"settings/{settings.data(Qt.ItemDataRole.UserRole)}", type=0)
                 self.llmSettingsList.setCurrentItem(settings, QItemSelectionModel.SelectionFlag.ClearAndSelect)
@@ -944,6 +950,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 self.loadLLMSettings(type=-1)
                 settings = QListWidgetItem(title.strip())
                 settings.setData(Qt.ItemDataRole.UserRole, f"settings_llm_{self.llmSettingsList.count() - 1}.json")
+                settings.setFlags(settings.flags() | Qt.ItemFlag.ItemIsEditable)
                 self.llmSettingsList.addItem(settings)
                 self.saveLLMSettings(path=f"settings/{settings.data(Qt.ItemDataRole.UserRole)}", type=0)
                 self.llmSettingsList.setCurrentItem(settings, QItemSelectionModel.SelectionFlag.ClearAndSelect)
@@ -972,12 +979,24 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 for settings in settings_json.get("settings", []):
                     item = QListWidgetItem(settings.get("title", "Untitled Settings"))
                     item.setData(Qt.ItemDataRole.UserRole, settings.get("filename", ""))
+                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
                     self.llmSettingsList.addItem(item)
                     self.profileSelect.addItem(settings.get("title", "Untitled Settings"), settings.get("filename", ""))
                 if self.profileSelect.count() > 0:
                     self.profileSelect.setCurrentIndex(0)
         except (FileNotFoundError, json.JSONDecodeError):
             self.create_new_settings("Default Settings")
+
+    def reload_settings_select(self, save_selection=False):
+        current_selection = None
+        if save_selection and self.profileSelect.currentIndex() >= 0:
+            current_selection = self.profileSelect.currentIndex()
+        self.profileSelect.clear()
+        for i in range(self.llmSettingsList.count()):
+            item = self.llmSettingsList.item(i)
+            self.profileSelect.addItem(item.text(), item.data(Qt.ItemDataRole.UserRole))
+        if current_selection is not None and save_selection:
+            self.profileSelect.setCurrentIndex(current_selection)
 
     def save_settings_list(self):
         if not os.path.exists("settings"):
