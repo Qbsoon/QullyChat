@@ -22,7 +22,7 @@ The idea was born out of my frustration with some things not available in LMStud
 - [x] Implement chats list
     - [ ] Ability to move chats on the list
     - [ ] Export chat
-    - [ ] Renaming chats
+    - [x] Renaming chats
 - [x] Implement LLM model list
     - [x] Model-bound settings edit
     - [ ] Make columns correct wideness
