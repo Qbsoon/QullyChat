@@ -723,8 +723,11 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         buttonsSec.addWidget(settingsModelBtn)
         layout.addLayout(buttonsSec)
 
+        if not os.path.exists("models"):
+            os.makedirs("models")
+
         try:
-            with open("models.json", "r") as f:
+            with open("models/models.json", "r") as f:
                 models_json = json.load(f)
                 self.models = models_json.get('models', [])
         except (FileNotFoundError, json.JSONDecodeError):
@@ -850,8 +853,10 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
     def refresh_models_table(self):
         self.modelsTable.setRowCount(0)
         self.modelSelect.clear()
+        if not os.path.exists("models"):
+            os.makedirs("models")
         if not self.models:
-            with open("models.json", "w") as f:
+            with open("models/models.json", "w") as f:
                 json.dump({"models": []}, f, indent=4)
             return
         for model in self.models:
@@ -863,8 +868,8 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             self.modelsTable.setItem(row, 3, QTableWidgetItem(str(model.get("weights", ""))))
             self.modelsTable.setItem(row, 4, QTableWidgetItem(str(model.get("layers", ""))))
 
-            self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", )
-        with open("models.json", "w") as f:
+            self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", {"row": str(row), "path": model.get("path", "")})
+        with open("models/models.json", "w") as f:
             json.dump({"models": self.models}, f, indent=4)
 
     def initLLMSettings(self):
