@@ -1308,6 +1308,8 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 target.resizeRowToContents(row)
         if type == 1:
             self.model_settings_switcher(self.LLMSettings.get('model_settings', False))
+        elif type == 2:
+            self.chat_settings_switcher(self.LLMSettings.get('chat_settings', False))
 
     def saveLLMSettings(self, path=None, type=0):
         if self.llmSettingsList.count() == 0:
