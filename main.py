@@ -226,17 +226,18 @@ class App(QWidget):
         self.chatLegacyHistory = []
         self.models = []
 
-        self.LLMSettings = {}
+        self.LLMSettings = {"system_prompt": "You are a helpful assistant."}
         self.bpSettings = [
             {'type': 'radiobutton', 'name': 'model_settings', 'display': 'Use model settings', 'default': False, 'use_case': [1]},
+            {'type': 'radiobutton', 'name': 'chat_settings', 'display': 'Use chat settings', 'default': False, 'use_case': [2]},
             {'type': 'text', 'name': 'address', 'display': 'Address', 'default': '127.0.0.1', 'use_case': [0]},
             {'type': 'number', 'name': 'port', 'display': 'Port', 'default': '5175', 'use_case': [0]},
-            {'type': 'slider', 'name': 'threads', 'display': 'CPU Threads', 'default': "-1", 'min': 1, 'max': os.cpu_count(), 'use_case': [0, 1]},
-            {'type': 'combo', 'name': 'gpu_layers', 'display': 'Layers on GPU', 'default': "All", 'options': ["Auto", "All", "0"], 'use_case': [0]},
+            {'type': 'slider', 'name': 'threads', 'display': 'CPU Threads', 'default': "-1", 'min': 1, 'max': os.cpu_count(), 'use_case': [0, 1, 2]},
+            {'type': 'combo', 'name': 'gpu_layers', 'display': 'Layers on GPU', 'default': "All", 'options': ["Auto", "All", "0"], 'use_case': [0, 2]},
             {'type': 'slider', 'name': 'gpu_layers', 'display': 'Layers on GPU', 'default': "-1", 'min': 0, 'max': 0, 'use_case': [1]},
-            {'type': 'number', 'name': 'batch_size', 'display': 'Batch size', 'default': "512", 'use_case': [0, 1]},
-            {'type': 'text', 'name': 'system_prompt', 'display': 'System prompt', 'default': 'You are a helpful assistant.', 'use_case': [0, 1]}
-        ]   # 0: llm settings tab; 1: llm model-specific settings
+            {'type': 'number', 'name': 'batch_size', 'display': 'Batch size', 'default': "512", 'use_case': [0, 1, 2]},
+            {'type': 'text', 'name': 'system_prompt', 'display': 'System prompt', 'default': 'You are a helpful assistant.', 'use_case': [0, 1, 2]}
+        ]   # 0: llm settings tab; 1: llm model-specific settings; 2: chat-specific settings
 
         self.mainLayout = QVBoxLayout()
         self.mainLayout.setContentsMargins(0, 0, 0, 0)
@@ -394,12 +395,23 @@ class App(QWidget):
     
     def model_changed(self, index):
         settings_set = 0
-        ### if chat_has_settings settings_set = 1
+        ### if chat has settings
+        if settings_set == 0:
+            chat = self.chatList.currentItem()
+            if chat:
+                filename = chat.data(Qt.ItemDataRole.UserRole)
+                filename = filename[:-5]
+                if os.path.exists(f"chats/{filename}_settings.json"):
+                    self.loadLLMSettings(path=f"chats/{filename}_settings.json", type=2, display=0)
+                    if self.LLMSettings.get('chat_settings', False) == True:
+                        settings_set = 1
+        ### if model has settings
         idx = self.modelSelect.itemData(index)['row']
         if settings_set == 0:
             self.loadLLMSettings(path=self.models[int(idx)].get("path", ""), type=1, display=0)
             if self.LLMSettings.get('model_settings', False) == True:
                 settings_set = 1
+        ### else use profile settings
         if settings_set == 0:
             self.loadLLMSettings(path=f"settings/{self.profileSelect.currentData()}", type=0, display=0)
         gpu_layers = self.LLMSettings.get('gpu_layers')
@@ -414,7 +426,7 @@ class App(QWidget):
             'address': self.LLMSettings['address'],
             'port': self.LLMSettings['port'],
             'threads': int(self.LLMSettings['threads']),
-            'gpu_layers': gpu_layers,
+            'gpu_layers': int(gpu_layers),
             'batch_size': int(self.LLMSettings['batch_size'])
         }
         print(options)
@@ -501,7 +513,15 @@ class App(QWidget):
         spBtn.setFixedHeight(24)
         spBtn.clicked.connect(self.edit_system_prompt)
         chatWButtons.addWidget(spBtn)
+
+        settingsChatBtn = QPushButton("Chat Settings")
+        settingsChatBtn.clicked.connect(self.settings_chat)
+        settingsChatBtn.setFixedHeight(24)
+        chatWButtons.addWidget(settingsChatBtn)
         chatWLayout.addLayout(chatWButtons)
+
+        chatWLayout2 = QHBoxLayout()
+        chatWLayout2S = QVBoxLayout()
 
         self.chatDisplay = QTextEdit()
         self.chatDisplay.setReadOnly(True)
@@ -530,7 +550,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
     background: none;
 }
 """)
-        chatWLayout.addWidget(self.chatDisplay)
+        chatWLayout2S.addWidget(self.chatDisplay)
 
         inputLayout = QHBoxLayout()
         self.chatInput = QLineEdit()
@@ -543,7 +563,21 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         inputLayout.addWidget(self.chatInput)
         inputLayout.addWidget(sendBtn)
 
-        chatWLayout.addLayout(inputLayout)
+        chatWLayout2S.addLayout(inputLayout)
+        chatWLayout2.addLayout(chatWLayout2S, 65)
+
+        self.chatSettingsTable = QTableWidget()
+        self.chatSettingsTable.setColumnCount(2)
+        self.chatSettingsTable.setHorizontalHeaderLabels(["Setting", "Value"])
+        self.chatSettingsTable.horizontalHeader().setStretchLastSection(True)
+        self.chatSettingsTable.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.chatSettingsTable.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.chatSettingsTable.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.chatSettingsTable.itemChanged.connect(self.llm_setting_changed)
+        self.chatSettingsTable.setVisible(False)
+        chatWLayout2.addWidget(self.chatSettingsTable, 35)
+
+        chatWLayout.addLayout(chatWLayout2)
         layout.addLayout(chatWLayout, 80)
         widget.setLayout(layout)
         self.tabs.addTab(widget, "Chat")
@@ -585,6 +619,8 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
     def load_chat(self):
         chat = self.chatList.currentItem()
         if chat:
+            if not os.path.exists("chats"):
+                os.makedirs("chats")
             filename = chat.data(Qt.ItemDataRole.UserRole)
             try:
                 with open("chats/" + filename, "r") as f:
@@ -597,6 +633,8 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         if chat is None:
             chat = self.chatList.currentItem()
         if chat:
+            if not os.path.exists("chats"):
+                os.makedirs("chats")
             filename = chat.data(Qt.ItemDataRole.UserRole)
             try:
                 with open("chats/" + filename, "w") as f:
@@ -636,6 +674,43 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to delete chat file: {e}")
                 return
+            
+    def settings_chat(self, change = False):
+        if self.chatSettingsTable.isVisible() and not change:
+            self.chatSettingsTable.setVisible(False)
+            return
+        if not self.chatSettingsTable.isVisible() and change:
+            return
+        
+        self.chatSettingsTable.setVisible(True)
+
+        selected_chats = self.chatList.selectedItems()
+        if not selected_chats:
+            QMessageBox.information(self, "No Chat Selected", "Please select a chat to edit its settings.")
+            return
+        chat = selected_chats[0]
+        filename = chat.data(Qt.ItemDataRole.UserRole)
+        self.loadLLMSettings(path=f"chats/{filename}", type=2)
+
+    def chat_settings_switcher(self, checked):
+        if not checked:
+            for row in range(1, self.chatSettingsTable.rowCount()):
+                widget = self.chatSettingsTable.cellWidget(row, 1)
+                if widget:
+                    widget.setDisabled(True)
+                else:
+                    item = self.chatSettingsTable.item(row, 1)
+                    if item:
+                        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+        else:
+            for row in range(1, self.chatSettingsTable.rowCount()):
+                widget = self.chatSettingsTable.cellWidget(row, 1)
+                if widget:
+                    widget.setDisabled(False)
+                else:
+                    item = self.chatSettingsTable.item(row, 1)
+                    if item:
+                        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEnabled)
     
     def edit_system_prompt(self):
         replace = False
@@ -1026,6 +1101,10 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             if type == 1:
                 path = path[:-5]
                 path = f"{path}.json"
+            if type == 2:
+                if not path.endswith("_settings.json"):
+                    path = path[:-5]
+                    path = f"{path}_settings.json"
             with open(f"{path}", "r") as f:
                 settings_json = json.load(f)
                 self.LLMSettings = settings_json.get('settings', {})
@@ -1052,6 +1131,8 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             target = self.LLMSettingsTable
         elif type == 1:
             target = self.LLMModelSettingsTable
+        elif type == 2:
+            target = self.chatSettingsTable
         target.setRowCount(0)
         for setting in self.bpSettings:
             if type in setting['use_case']:
@@ -1109,6 +1190,9 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                     if setting['name'] == 'model_settings':
                         value.setToolTip("When turned on, it uses model settings for model instead of profile settings.")
                         value.toggled.connect(lambda checked: self.model_settings_switcher(checked))
+                    if setting['name'] == 'chat_settings':
+                        value.setToolTip("When turned on, it uses chat settings for chat instead of profile settings.")
+                        value.toggled.connect(lambda checked: self.chat_settings_switcher(checked))
                     value.toggled.connect(lambda checked, name=setting['name']: self.llm_setting_changed({'value': checked, "name": name}, native=False, path=path, type=type))
 
                 target.setCellWidget(row, 1, value) if not isinstance(value, QTableWidgetItem) else target.setItem(row, 1, value)
@@ -1127,6 +1211,10 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         if type == 1:
             path = path[:-5]
             path = f"{path}.json"
+        if type == 2:
+            if not path.endswith("_settings.json"):
+                path = path[:-5]
+                path = f"{path}_settings.json"
         try:
             with open(f"{path}", "w") as f:
                 json.dump({"settings": self.LLMSettings, "type": type}, f, indent=4)
