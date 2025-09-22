@@ -19,8 +19,6 @@ import subprocess
 import atexit
 import threading
 
-url = "http://127.0.0.1:5175/v1/chat/completions"
-
 class Llama_cpp(QThread):
     def __init__(self, options):
         super().__init__()
@@ -67,16 +65,17 @@ class LLMWorker(QThread):
     token_emit = pyqtSignal(str)
     error_emit = pyqtSignal(str)
 
-    def __init__(self, request):
+    def __init__(self, request, url):
         super().__init__()
         self.request = request
         self.reply = ""
         self._is_running = True
+        self.url = url
 
     def run(self):
         self._is_running = True
         try:
-            response = requests.post(url, json=self.request, stream=True)
+            response = requests.post(self.url, json=self.request, stream=True)
             client = sseclient.SSEClient(response)
             self.reply = ""
             for event in client.events():
@@ -238,6 +237,7 @@ class App(QWidget):
             {'type': 'number', 'name': 'batch_size', 'display': 'Batch size', 'default': "512", 'use_case': [0, 1, 2]},
             {'type': 'text', 'name': 'system_prompt', 'display': 'System prompt', 'default': 'You are a helpful assistant.', 'use_case': [0, 1, 2]}
         ]   # 0: llm settings tab; 1: llm model-specific settings; 2: chat-specific settings
+        self.currentAddress = "http://127.0.0.1:5175/v1/chat/completions"
 
         self.mainLayout = QVBoxLayout()
         self.mainLayout.setContentsMargins(0, 0, 0, 0)
@@ -445,7 +445,7 @@ class App(QWidget):
             'gpu_layers': int(gpu_layers),
             'batch_size': int(settings_build['batch_size'])
         }
-        print(options)
+        self.currentAddress = f"http://{settings_build['address']}:{settings_build['port']}/v1/chat/completions"
         if hasattr(self, 'llama_thread') and self.llama_thread._is_running:
             self.llama_thread.stop()
             self.llama_thread.wait()
@@ -760,7 +760,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         self.convert_chat_toLegacy()
         QApplication.processEvents()
         request = {"messages": self.chatLegacyHistory, "max_tokens": -1, "n_predict": -1, "stream": True}
-        self.worker = LLMWorker(request)
+        self.worker = LLMWorker(request, self.currentAddress)
         self.worker.token_emit.connect(lambda token: self.chatDisplay.insertPlainText(token) or self.chatDisplay.moveCursor(QTextCursor.MoveOperation.End))
         self.worker.result_ready.connect(self.handle_reply)
         self.worker.error_emit.connect(lambda e: self.chatDisplay.append(f'<b><span style="color: red;">Qully:</span></b> {e}'))
