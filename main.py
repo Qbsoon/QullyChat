@@ -394,27 +394,43 @@ class App(QWidget):
         return edges
     
     def model_changed(self, index):
+        settings_build = {}
         settings_set = 0
         ### if chat has settings
-        if settings_set == 0:
-            chat = self.chatList.currentItem()
-            if chat:
-                filename = chat.data(Qt.ItemDataRole.UserRole)
-                filename = filename[:-5]
-                if os.path.exists(f"chats/{filename}_settings.json"):
-                    self.loadLLMSettings(path=f"chats/{filename}_settings.json", type=2, display=0)
-                    if self.LLMSettings.get('chat_settings', False) == True:
+        chat = self.chatList.currentItem()
+        if chat:
+            filename = chat.data(Qt.ItemDataRole.UserRole)
+            filename = filename[:-5]
+            if os.path.exists(f"chats/{filename}_settings.json"):
+                self.loadLLMSettings(path=f"chats/{filename}_settings.json", type=2, display=0)
+                if self.LLMSettings.get('chat_settings', False) == True:
+                    if settings_set == 0:
                         settings_set = 1
+                        settings_build = self.LLMSettings.copy()
+                    else:
+                        for key, value in self.LLMSettings.items():
+                            if key not in settings_build:
+                                settings_build[key] = value
         ### if model has settings
         idx = self.modelSelect.itemData(index)['row']
-        if settings_set == 0:
-            self.loadLLMSettings(path=self.models[int(idx)].get("path", ""), type=1, display=0)
-            if self.LLMSettings.get('model_settings', False) == True:
+        self.loadLLMSettings(path=self.models[int(idx)].get("path", ""), type=1, display=0)
+        if self.LLMSettings.get('model_settings', False) == True:
+            if settings_set == 0:
                 settings_set = 1
+                settings_build = self.LLMSettings.copy()
+            else:
+                for key, value in self.LLMSettings.items():
+                    if key not in settings_build:
+                        settings_build[key] = value
         ### else use profile settings
+        self.loadLLMSettings(path=f"settings/{self.profileSelect.currentData()}", type=0, display=0)
         if settings_set == 0:
-            self.loadLLMSettings(path=f"settings/{self.profileSelect.currentData()}", type=0, display=0)
-        gpu_layers = self.LLMSettings.get('gpu_layers')
+            settings_build = self.LLMSettings.copy()
+        else:
+            for key, value in self.LLMSettings.items():
+                if key not in settings_build:
+                    settings_build[key] = value
+        gpu_layers = settings_build.get('gpu_layers')
         if gpu_layers == "Auto":
             gpu_layers = int(self.models[int(idx)]['layers'])+1
         elif gpu_layers == "All":
@@ -423,11 +439,11 @@ class App(QWidget):
             gpu_layers = 0
         options = {
             'model_path': self.modelSelect.currentData()['path'],
-            'address': self.LLMSettings['address'],
-            'port': self.LLMSettings['port'],
-            'threads': int(self.LLMSettings['threads']),
+            'address': settings_build['address'],
+            'port': settings_build['port'],
+            'threads': int(settings_build['threads']),
             'gpu_layers': int(gpu_layers),
-            'batch_size': int(self.LLMSettings['batch_size'])
+            'batch_size': int(settings_build['batch_size'])
         }
         print(options)
         if hasattr(self, 'llama_thread') and self.llama_thread._is_running:
@@ -1090,6 +1106,10 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             print(f"Error saving settings list: {e}")
 
     def loadLLMSettings(self, path=None, type=0, display=1):
+        if display == 0:
+            self.LLMSettingsTable.setRowCount(0)
+            self.LLMModelSettingsTable.setRowCount(0)
+            self.chatSettingsTable.setRowCount(0)
         if type == 0 and self.llmSettingsList.currentItem() is None:
             return
         try:
@@ -1122,7 +1142,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
             if type == -1:
                 return
             self.saveLLMSettings(path=path, type=type)
-        
+
         if type == -1 or display == 0:
             return
 
