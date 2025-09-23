@@ -1,13 +1,15 @@
 import os
 import signal
+import math
 from PyQt6.QtWidgets import (
 	QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit, QLineEdit,
 	QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QFileDialog, QSplitter,
     QDialog, QListWidget, QListWidgetItem, QInputDialog, QComboBox, QCheckBox, QSlider, QFrame,
-    QRadioButton
+    QRadioButton, QScrollArea, QTextBrowser
 )
 from PyQt6.QtGui import (
-    QTextCursor, QPixmap, QCursor, QIntValidator, QPainter, QColor, QBrush, QPen, QMouseEvent
+    QTextCursor, QPixmap, QCursor, QIntValidator, QPainter, QColor, QBrush, QPen, QMouseEvent,
+    QTextOption
 )
 from PyQt6.QtCore import (
     QTimer, Qt, QThread, pyqtSignal, QItemSelectionModel, QEvent, QPoint, QPropertyAnimation,
@@ -300,6 +302,221 @@ class ToggleSwitch(QRadioButton):
 	def resizeEvent(self, event):
 		super().resizeEvent(event)
 		self._handle_position = self._get_target_handle_pos()
+
+class ChatBubble(QFrame):
+    def __init__(self, text, speaker):
+        super().__init__()
+        self.text = text
+        self.speaker = speaker
+        self.styleBase = ""
+        self.margins = (0, 0, 0, 0)
+        align = Qt.AlignmentFlag.AlignCenter
+
+        if self.speaker == "user":
+            self.speaker = "User"
+            align = Qt.AlignmentFlag.AlignRight
+        elif self.speaker == "assistant":
+            self.speaker = "Assistant"
+            align = Qt.AlignmentFlag.AlignLeft
+        elif self.speaker == "system":
+            self.speaker = "System"
+
+        layout = QVBoxLayout()
+        label = QLabel(self.speaker)
+        layout.addWidget(label)
+        self.textbox = ChatBubbleText(self.text, align=align)
+        layout.addWidget(self.textbox)
+        btnS = QHBoxLayout()
+        copyBtn = QPushButton("Copy")
+        copyBtn.setToolTip("Copy text to clipboard")
+        deleteBtn = QPushButton("Delete")
+        deleteBtn.setToolTip("Delete this bubble")
+        btnS.addWidget(copyBtn)
+        btnS.addWidget(deleteBtn)
+        layout.addLayout(btnS)
+        self.setLayout(layout)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setAutoFillBackground(True)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+
+        if self.speaker == "User":
+            self.styleBase = """
+QFrame {
+    background-color: #d1e7dd;
+    border: 1px solid #badbcc;
+    border-radius: 8px;
+    padding: 8px;
+    margin: 8px 16px 8px 144px;
+}
+QLabel {
+    color: #0f5132;
+    font-weight: bold;
+}
+QTextBrowser {
+    color: #0f5132;
+    font-weight: bold;
+}
+QPushButton {
+    background-color: #badbcc;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: #0f5132;
+    font-weight: bold;
+}
+QPushButton:hover {
+    background-color: #0f5132;
+    color: #ffffff;
+}
+"""
+            self.margins = (8, 16, 8, 144)
+        elif self.speaker == "Assistant":
+            self.styleBase = """
+QFrame {
+    background-color: #cff4fc;
+    border: 1px solid #b6effb;
+    border-radius: 8px;
+    padding: 8px;
+    margin: 8px 144px 8px 16px;
+}
+QLabel {
+    color: #055160;
+    font-weight: bold;
+}
+QTextBrowser {
+    color: #055160;
+    font-weight: bold;
+}
+QPushButton {
+    background-color: #b6effb;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: #055160;
+    font-weight: bold;
+}
+QPushButton:hover {
+    background-color: #055160;
+    color: #ffffff;
+}
+"""
+            self.margins = (8, 144, 8, 16)
+        elif self.speaker == "System":
+            self.styleBase ="""
+QFrame {
+    background-color: #e2e3e5;
+    border: 1px solid #d3d6d8;
+    border-radius: 8px;
+    padding: 8px;
+    margin: 8px 80px 8px 80px;
+}
+QLabel {
+    color: #41464b;
+    font-weight: bold;
+}
+QTextBrowser {
+    color: #41464b;
+    font-weight: bold;
+}
+QPushButton {
+    background-color: #d3d6d8;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: #41464b;
+    font-weight: bold;
+}
+QPushButton:hover {
+    background-color: #41464b;
+    color: #ffffff;
+}
+"""
+            self.margins = (8, 80, 8, 80)
+        self.setStyleSheet(self.styleBase)
+
+    def showEvent(self, e):
+        self._applyResponsiveMargins()
+        super().showEvent(e)
+
+    def resizeEvent(self, e):
+        self._applyResponsiveMargins()
+        super().resizeEvent(e)
+
+    def _basisWidth(self):
+        w = self.parentWidget()
+        while w and not isinstance(w, QScrollArea):
+            w = w.parentWidget()
+        if isinstance(w, QScrollArea):
+            return max(1, w.viewport().width())
+        win = self.window()
+        return 800
+    
+    def _applyResponsiveMargins(self):
+        if self.styleBase is None:
+            return
+        base = self._basisWidth()
+        t0, r0, b0, l0 = self.margins
+        k = base / float(800)
+        clamp = lambda v: int(round(max(8, min(160, v))))
+        mt, mr, mb, ml = map(clamp, (t0 * k, r0 * k, b0 * k, l0 * k))
+        
+        override = f"QFrame {{ margin: {mt}px {mr}px {mb}px {ml}px; }}"
+        self.setStyleSheet(f"{self.styleBase}\n{override}")
+
+class ChatBubbleText(QTextBrowser):
+    def __init__(self, text="", align=Qt.AlignmentFlag.AlignCenter):
+        super().__init__()
+        self._align = align
+        self.document().setDefaultTextOption(QTextOption(self._align))
+        self.setReadOnly(True)
+        self.setOpenExternalLinks(True)
+        self.setUndoRedoEnabled(False)
+        self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setFrameStyle(QFrame.Shape.NoFrame)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setStyleSheet("margin:0;padding:0;border:0;")
+        self.document().setDocumentMargin(0)
+        self.document().setDefaultStyleSheet("""
+            p, pre, ul, ol, h1, h2, h3, h4, h5, h6 { margin-top:0px; margin-bottom:0px; }
+            ul, ol { padding-left: 18px; }
+            code, pre { font-family: monospace; }
+        """)
+
+        if "<" in text and "</" in text:
+            self.setHtml(text)
+        else:
+            self.setPlainText(text)
+
+        self.document().contentsChanged.connect(self._apply_height)
+        self.document().documentLayout().documentSizeChanged.connect(lambda _=None: self._apply_height())
+
+        self._apply_height()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._apply_height()
+
+    def setPlainText(self, text: str) -> None:
+        super().setPlainText(text)
+        self._apply_height()
+
+    def setHtml(self, html: str) -> None:
+        super().setHtml(html)
+        self._apply_height()
+
+    def _apply_height(self):
+        w = max(1, self.viewport().width())
+        if self.document().textWidth() != w:
+            self.document().setTextWidth(w)
+
+        doc_h = math.ceil(self.document().documentLayout().documentSize().height())
+        h = max(1, doc_h + 2 * self.frameWidth())
+        self.setFixedHeight(h)
+        self.updateGeometry()
 
 class App(QWidget):
     def __init__(self):
@@ -626,34 +843,16 @@ class App(QWidget):
         chatWLayout2 = QHBoxLayout()
         chatWLayout2S = QVBoxLayout()
 
-        self.chatDisplay = QTextEdit()
-        self.chatDisplay.setReadOnly(True)
-        self.chatDisplay.setStyleSheet("""
-QTextEdit {
-    background-color: #000000;
-}
-QScrollBar:vertical {
-    background: #f0f0f0;
-    width: 12px;
-    margin: 0;
-    border-radius: 6px;
-}
-QScrollBar::handle:vertical {
-    background: #6c8cd5;
-    min-height: 30px;
-    border-radius: 6px;
-}
-QScrollBar::handle:vertical:hover {
-    background: #3a5bbb;
-}
-QScrollBar::sub-line:vertical, QScrollBar::add-line:vertical {
-    height: 0px;
-}
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-    background: none;
-}
-""")
-        chatWLayout2S.addWidget(self.chatDisplay)
+        self.chatDisplayScroll = QScrollArea()
+        self.chatDisplayScroll.setWidgetResizable(True)
+        self.chatDisplayWidget = QWidget()
+        self.chatDisplay = QVBoxLayout()
+        self.chatDisplay.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.chatDisplay.setContentsMargins(0, 0, 0, 0)
+
+        self.chatDisplayWidget.setLayout(self.chatDisplay)
+        self.chatDisplayScroll.setWidget(self.chatDisplayWidget)
+        chatWLayout2S.addWidget(self.chatDisplayScroll)
 
         inputLayout = QHBoxLayout()
         self.chatInput = QLineEdit()
@@ -843,14 +1042,15 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         self.chatHistory.append({"role": "user", "content": prompt})
         self.chatInput.clear()
         self.update_chat_display()
-        self.chatDisplay.append(f'<b><span style="color: orange;">Assistant:</span></b> ')
         self.convert_chat_toLegacy()
         QApplication.processEvents()
+        bubble = ChatBubble("", "assistant")
+        self.chatDisplay.addWidget(bubble)
         request = {"messages": self.chatLegacyHistory, "max_tokens": -1, "n_predict": -1, "stream": True}
         self.worker = LLMWorker(request, self.currentAddress)
-        self.worker.token_emit.connect(lambda token: self.chatDisplay.insertPlainText(token) or self.chatDisplay.moveCursor(QTextCursor.MoveOperation.End))
+        self.worker.token_emit.connect(lambda token: bubble.textbox.insertPlainText(token))
         self.worker.result_ready.connect(self.handle_reply)
-        self.worker.error_emit.connect(lambda e: self.chatDisplay.append(f'<b><span style="color: red;">Qully:</span></b> {e}'))
+        self.worker.error_emit.connect(lambda e: bubble.textbox.insertPlainText(e))
         self.worker.start()
         self.worker.exec()
             
@@ -867,8 +1067,14 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
         self.update_chat_display()
 
     def update_chat_display(self):
-        self.chatDisplay.clear()
-        parts = []
+        while self.chatDisplay.count():
+            item = self.chatDisplay.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+            
+        QApplication.processEvents()
         for message in self.chatHistory:
             role = message['role']
             content = message['content']
@@ -876,15 +1082,20 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 content = content[1:]
             content = md_to_html(content, extensions=["extra", "fenced_code", "sane_lists", "nl2br"])
             if role == 'user':
-                parts.append(f'<b><span style="color: blue;">User:</span></b> {content}')
+                bubble = ChatBubble(content, "user")
             elif role == 'assistant':
-                parts.append(f'<b><span style="color: orange;">Assistant:</span></b> {content}')
+                bubble = ChatBubble(content, "assistant")
             elif role == 'system':
-                parts.append(f'<b><i><span style="color: green;">System:</span></i></b> {content}')
+                bubble = ChatBubble(content, "system")
             else:
-                parts.append(f'<b><span style="color: red;">{role.capitalize()}:</span></b> {content}')
-        self.chatDisplay.setMarkdown("\n\n".join(parts))
-        self.chatDisplay.verticalScrollBar().setValue(self.chatDisplay.verticalScrollBar().maximum())
+                bubble = ChatBubble(content, role)
+            self.chatDisplay.addWidget(bubble)
+
+        if hasattr(self, "chatDisplayWidget"):
+            self.chatDisplayWidget.adjustSize()
+            self.chatDisplayWidget.update()
+        if hasattr(self, "chatDisplayScroll"):
+            self.chatDisplayScroll.viewport().update()
         self.save_chat()
 
     def initModels(self):

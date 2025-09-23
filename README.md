@@ -11,6 +11,7 @@ The idea was born out of my frustration with some things not available in LMStud
     - [x] Choosing settings profile next to the LLM in topbar
     - [x] Chat-bound settings edit
     - [x] Settings importance layers (Chat > Model > Profile)
+    - [x] Base chat bubbles system
     - [ ] Show generate button when sent with no model selected & prompt to choose model
     - [ ] Move responses to separate boxes (User R-aligned, Assistant L-alligned, System C-alligned)
     - [ ] Add copy button
@@ -44,6 +45,7 @@ The idea was born out of my frustration with some things not available in LMStud
     - [ ] Rate each step of responses
     - [ ] Compare statistics (benchmark)
 - [ ] Store statistics in chat file
+- [ ] Start splitting code into files
 - [x] Starting llama.cpp server in app
 - [x] Try to preserve system prompt history
 - [ ] Implement Image Generation in chat
