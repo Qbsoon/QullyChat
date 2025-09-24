@@ -322,6 +322,7 @@ class ChatBubble(QFrame):
         btnS = QHBoxLayout()
         copyBtn = QPushButton("Copy")
         copyBtn.setToolTip("Copy text to clipboard")
+        copyBtn.clicked.connect(self.copy_to_clipboard)
         self.deleteBtn = QPushButton("Delete")
         self.deleteBtn.setToolTip("Delete this bubble")
         self.deleteBtn.clicked.connect(self.deleteLater)
@@ -458,6 +459,9 @@ QPushButton:hover {
         
         override = f"QFrame {{ margin: {mt}px {mr}px {mb}px {ml}px; }}"
         self.setStyleSheet(f"{self.styleBase}\n{override}")
+
+    def copy_to_clipboard(self):
+        QApplication.clipboard().setText(self.textbox.toPlainText())
 
 class ChatBubbleText(QTextBrowser):
     def __init__(self, text="", align=Qt.AlignmentFlag.AlignCenter):
