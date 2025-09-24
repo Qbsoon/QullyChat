@@ -14,11 +14,11 @@ The idea was born out of my frustration with some things not available in LMStud
     - [x] Base chat bubbles system
     - [ ] Show generate button when sent with no model selected & prompt to choose model
     - [ ] Move responses to separate boxes (User R-aligned, Assistant L-alligned, System C-alligned)
-    - [ ] Add copy button
+    - [x] Add copy button
     - [ ] Show statistics
     - [ ] Add regenerate button
     - [ ] Add branch chat function
-    - [ ] Add delete button
+    - [x] Add delete button
     - [ ] Edit made prompts (but only with regenerate & branch solutions)
 - [x] Implement chats list
     - [ ] Ability to move chats on the list
