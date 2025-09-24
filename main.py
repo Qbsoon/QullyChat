@@ -220,14 +220,6 @@ class GGUFInfoWoker(QThread):
             return [x.decode("utf-8", errors="replace") for x in value]
 
         return value[0]
-    
-
-from PyQt6.QtCore import (
-	QPropertyAnimation, QEasingCurve, Qt, pyqtProperty
-)
-from PyQt6.QtGui import QColor, QBrush, QPainter, QPen, QMouseEvent
-from PyQt6.QtWidgets import QRadioButton
-
 
 class ToggleSwitch(QRadioButton):
 	def __init__(self, parent=None):
@@ -311,6 +303,7 @@ class ChatBubble(QFrame):
         self.styleBase = ""
         self.margins = (0, 0, 0, 0)
         align = Qt.AlignmentFlag.AlignCenter
+        self._suppress_bubble_pop = False
 
         if self.speaker == "user":
             self.speaker = "User"
@@ -329,10 +322,12 @@ class ChatBubble(QFrame):
         btnS = QHBoxLayout()
         copyBtn = QPushButton("Copy")
         copyBtn.setToolTip("Copy text to clipboard")
-        deleteBtn = QPushButton("Delete")
-        deleteBtn.setToolTip("Delete this bubble")
+        self.deleteBtn = QPushButton("Delete")
+        self.deleteBtn.setToolTip("Delete this bubble")
+        self.deleteBtn.clicked.connect(self.deleteLater)
+        self.deleteBtn.setVisible(False)
         btnS.addWidget(copyBtn)
-        btnS.addWidget(deleteBtn)
+        btnS.addWidget(self.deleteBtn)
         layout.addLayout(btnS)
         self.setLayout(layout)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
@@ -850,6 +845,15 @@ class App(QWidget):
         self.chatDisplay.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.chatDisplay.setContentsMargins(0, 0, 0, 0)
 
+        def _bubbles_change_event(w, ev):
+            if ev.type() == QEvent.Type.ChildAdded:
+                if isinstance(ev.child(), ChatBubble):
+                    QTimer.singleShot(0, lambda: self.bubbles_change(atype = "add"))
+            if ev.type() == QEvent.Type.ChildRemoved:
+                QTimer.singleShot(0, lambda: self.bubbles_change(atype = "rem"))
+            return QWidget.event(w, ev)
+        self.chatDisplayWidget.event = _bubbles_change_event.__get__(self.chatDisplayWidget, QWidget)
+
         self.chatDisplayWidget.setLayout(self.chatDisplay)
         self.chatDisplayScroll.setWidget(self.chatDisplayWidget)
         chatWLayout2S.addWidget(self.chatDisplayScroll)
@@ -1040,17 +1044,19 @@ class App(QWidget):
         if self.chatList.count() == 0:
             self.create_new_chat("Default Chat")
         self.chatHistory.append({"role": "user", "content": prompt})
+        bubble_u = ChatBubble(prompt, "user")
+        bubble_u.deleteBtn.clicked.connect
+        self.chatDisplay.addWidget(bubble_u)
         self.chatInput.clear()
-        self.update_chat_display()
         self.convert_chat_toLegacy()
         QApplication.processEvents()
-        bubble = ChatBubble("", "assistant")
-        self.chatDisplay.addWidget(bubble)
+        bubble_a = ChatBubble("", "assistant")
+        self.chatDisplay.addWidget(bubble_a)
         request = {"messages": self.chatLegacyHistory, "max_tokens": -1, "n_predict": -1, "stream": True}
         self.worker = LLMWorker(request, self.currentAddress)
-        self.worker.token_emit.connect(lambda token: bubble.textbox.insertPlainText(token))
+        self.worker.token_emit.connect(lambda token: bubble_a.textbox.insertPlainText(token))
         self.worker.result_ready.connect(self.handle_reply)
-        self.worker.error_emit.connect(lambda e: bubble.textbox.insertPlainText(e))
+        self.worker.error_emit.connect(lambda e: bubble_a.textbox.insertPlainText(e))
         self.worker.start()
         self.worker.exec()
             
@@ -1067,6 +1073,7 @@ class App(QWidget):
         self.update_chat_display()
 
     def update_chat_display(self):
+        self._suppress_bubble_pop = True
         while self.chatDisplay.count():
             item = self.chatDisplay.takeAt(0)
             w = item.widget()
@@ -1075,6 +1082,7 @@ class App(QWidget):
                 w.deleteLater()
             
         QApplication.processEvents()
+        self._suppress_bubble_pop = False
         for message in self.chatHistory:
             role = message['role']
             content = message['content']
@@ -1097,6 +1105,20 @@ class App(QWidget):
         if hasattr(self, "chatDisplayScroll"):
             self.chatDisplayScroll.viewport().update()
         self.save_chat()
+
+    def bubbles_change(self, atype):
+        try:
+            if atype == "add":
+                if self.chatDisplay.count() > 1:
+                    self.chatDisplay.itemAt(self.chatDisplay.count()-2).widget().deleteBtn.setVisible(False)
+                self.chatDisplay.itemAt(self.chatDisplay.count()-1).widget().deleteBtn.setVisible(True)
+            elif atype == "rem":
+                self.chatDisplay.itemAt(self.chatDisplay.count()-1).widget().deleteBtn.setVisible(True)
+                if not self._suppress_bubble_pop:
+                    self.chatHistory.pop()
+        except:
+            pass
+
 
     def initModels(self):
         widget = QWidget()
