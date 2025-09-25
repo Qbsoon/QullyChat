@@ -331,6 +331,9 @@ class ChatBubble(QFrame):
         self.deleteBtn.clicked.connect(self.deleteLater)
         self.deleteBtn.setVisible(False)
         self.deleteBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        self.deleteDownBtn = QPushButton("🗑⬇")
+        self.deleteDownBtn.setToolTip("Delete this one and all below bubbles")
+        self.deleteDownBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         self.generateBtn = QPushButton("Regenerate response")
         self.generateBtn.setToolTip("Generate an assistant response")
         self.generateBtn.setVisible(False)
@@ -342,6 +345,7 @@ class ChatBubble(QFrame):
             btnS.addWidget(self.statsBtn)
         btnS.addWidget(copyBtn)
         btnS.addWidget(self.deleteBtn)
+        btnS.addWidget(self.deleteDownBtn)
         btnS.addWidget(self.generateBtn)
         layout.addLayout(btnS)
         self.setLayout(layout)
@@ -966,7 +970,6 @@ class App(QWidget):
                     item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
                     self.chatList.addItem(item)
                     self.chat_ids.append(chat.get("filename", "").removesuffix(".json").removeprefix("chat_"))
-                    print(self.chat_ids)
         except (FileNotFoundError, json.JSONDecodeError):
             self.create_new_chat("Default Chat")
 
@@ -1162,6 +1165,7 @@ class App(QWidget):
                 bubble = ChatBubble(content, "system")
             else:
                 bubble = ChatBubble(content, role)
+            bubble.deleteDownBtn.clicked.connect(lambda _checked, b=bubble: self.delete_down_bubble(bubble=b))
             self.chatDisplay.addWidget(bubble)
 
         if hasattr(self, "chatDisplayWidget"):
@@ -1184,12 +1188,15 @@ class App(QWidget):
                 if vlast is not None:
                     vlast.deleteBtn.setVisible(False)
                     vlast.generateBtn.setVisible(False)
+                    vlast.deleteDownBtn.setVisible(True)
                 last.deleteBtn.setVisible(True)
+                last.deleteDownBtn.setVisible(False)
                 if last.speaker == 'User':
                     last.generateBtn.setVisible(True)
                     last.generateBtn.clicked.connect(self.send_prompt)
             elif atype == "rem":
                 last.deleteBtn.setVisible(True)
+                last.deleteDownBtn.setVisible(False)
                 if last.speaker == 'User':
                     last.generateBtn.setVisible(True)
                     last.generateBtn.clicked.connect(self.send_prompt)
@@ -1203,6 +1210,16 @@ class App(QWidget):
                            'total_ms': round(stats_d['timings']['prompt_ms'] + stats_d['timings']['predicted_ms'], 2),
                            'input_t': stats_d['usage']['prompt_tokens'], 'gen_t': stats_d['usage']['completion_tokens'],
                            'total_t': stats_d['usage']['total_tokens'], 't_s': round(stats_d['timings']['predicted_per_second'], 2)}
+        
+    def delete_down_bubble(self, bubble):
+        index = self.chatDisplay.indexOf(bubble)
+        if index >= 0:
+            for i in range(self.chatDisplay.count()-1, index-1, -1):
+                item = self.chatDisplay.takeAt(i)
+                w = item.widget()
+                if w is not None:
+                    w.setParent(None)
+                    w.deleteLater()
 
     def initModels(self):
         widget = QWidget()
