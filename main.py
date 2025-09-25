@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
 	QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit, QLineEdit,
 	QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QFileDialog, QSplitter,
     QDialog, QListWidget, QListWidgetItem, QInputDialog, QComboBox, QCheckBox, QSlider, QFrame,
-    QRadioButton, QScrollArea, QTextBrowser, QToolTip
+    QRadioButton, QScrollArea, QTextBrowser, QToolTip, QStackedLayout
 )
 from PyQt6.QtGui import (
     QTextCursor, QPixmap, QCursor, QIntValidator, QPainter, QColor, QBrush, QPen, QMouseEvent,
@@ -26,6 +26,7 @@ import numpy as np
 import subprocess
 import atexit
 import threading
+import copy
 
 class Llama_cpp(QThread):
     def __init__(self, options):
@@ -318,43 +319,97 @@ class ChatBubble(QFrame):
         elif self.speaker == "system":
             self.speaker = "System"
 
-        layout = QVBoxLayout()
+        layout = QStackedLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        mainPage = QWidget()
+        mainPage.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        mp_layout = QVBoxLayout()
         label = QLabel(self.speaker)
-        layout.addWidget(label)
+        mp_layout.addWidget(label)
         self.textbox = ChatBubbleText(self.text, align=align)
-        layout.addWidget(self.textbox)
+        mp_layout.addWidget(self.textbox)
         btnS = QHBoxLayout()
+        btnS.addStretch()
+
+        if self.speaker == "Assistant":
+            self.statsBtn = HoverLabel("📊", "")
+            self.statsBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+            btnS.addWidget(self.statsBtn)
+
         copyBtn = QPushButton("🗎")
         copyBtn.setToolTip("Copy text to clipboard")
         copyBtn.clicked.connect(self.copy_to_clipboard)
         copyBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        btnS.addWidget(copyBtn)
+
+        if self.speaker == "User":
+            self.editBtn = QPushButton("🖍️")
+            self.editBtn.setToolTip("Edit this prompt")
+            self.editBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+            self.editBtn.clicked.connect(self.edit)
+            btnS.addWidget(self.editBtn)
+        
         self.branchBtn = QPushButton("\ue0a0")
         self.branchBtn.setFont(QFont(self.font_family))
         self.branchBtn.setToolTip("Branch from this bubble to a new chat")
         self.branchBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        btnS.addWidget(self.branchBtn)
+
         self.deleteBtn = QPushButton("🗑")
         self.deleteBtn.setToolTip("Delete this bubble")
         self.deleteBtn.clicked.connect(self.deleteLater)
         self.deleteBtn.setVisible(False)
         self.deleteBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        btnS.addWidget(self.deleteBtn)
+
         self.deleteDownBtn = QPushButton("🗑⬇")
-        self.deleteDownBtn.setToolTip("Delete this one and all below bubbles")
+        self.deleteDownBtn.setToolTip("Delete all below bubbles")
         self.deleteDownBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        btnS.addWidget(self.deleteDownBtn)
+
         self.generateBtn = QPushButton("Regenerate response")
         self.generateBtn.setToolTip("Generate an assistant response")
         self.generateBtn.setVisible(False)
         self.generateBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
-        btnS.addStretch()
-        if self.speaker == "Assistant":
-            self.statsBtn = HoverLabel("📊", "")
-            self.statsBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
-            btnS.addWidget(self.statsBtn)
-        btnS.addWidget(copyBtn)
-        btnS.addWidget(self.branchBtn)
-        btnS.addWidget(self.deleteBtn)
-        btnS.addWidget(self.deleteDownBtn)
         btnS.addWidget(self.generateBtn)
-        layout.addLayout(btnS)
+
+        mp_layout.addLayout(btnS)
+        mainPage.setLayout(mp_layout)
+        layout.addWidget(mainPage)
+
+        editPage = QWidget()
+        ed_layout = QVBoxLayout()
+        self.editbox = QTextEdit()
+        self.editbox.setPlainText(self.text)
+        self.editbox.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.editbox.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.editbox.setMaximumHeight(self.textbox.height()*4)
+        self.editbox.setStyleSheet("QTextEdit { color: black; }")
+        ed_layout.addWidget(self.editbox)
+        ed_BtnS = QHBoxLayout()
+        ed_BtnS.addStretch()
+
+        self.saveBtn = QPushButton("💾 && 🗑⬇")
+        self.saveBtn.setToolTip("Save changes and delete all bubbles below")
+        self.saveBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        ed_BtnS.addWidget(self.saveBtn)
+
+        self.editBranchBtn = QPushButton("\ue0a0")
+        self.editBranchBtn.setFont(QFont(self.font_family))
+        self.editBranchBtn.setToolTip("Branch to a new chat with edits")
+        self.editBranchBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        ed_BtnS.addWidget(self.editBranchBtn)
+
+        cancelBtn = QPushButton("❌")
+        cancelBtn.setToolTip("Cancel editing")
+        cancelBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        cancelBtn.clicked.connect(self.cancel_edit)
+        ed_BtnS.addWidget(cancelBtn)
+
+        ed_layout.addLayout(ed_BtnS)
+        editPage.setLayout(ed_layout)
+        layout.addWidget(editPage)
+
         self.setLayout(layout)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -487,6 +542,14 @@ QPushButton:hover {
 
     def copy_to_clipboard(self):
         QApplication.clipboard().setText(self.textbox.toPlainText())
+    
+    def edit(self):
+        self.editbox.setPlainText(self.text)
+        self.layout().setCurrentIndex(1)
+
+    def cancel_edit(self):
+        self.editbox.setPlainText(self.text)
+        self.layout().setCurrentIndex(0)
 
 class ChatBubbleText(QTextBrowser):
     def __init__(self, text="", align=Qt.AlignmentFlag.AlignCenter):
@@ -952,6 +1015,7 @@ class App(QWidget):
             title, ok = QInputDialog.getText(self, "New Chat", "Enter chat title:")
         if ok and title.strip():
             self.save_chat()
+            QApplication.processEvents()
             if history is None:
                 self.chatHistory = [{"role": "system", "content": self.LLMSettings['system_prompt']}]
             else:
@@ -982,7 +1046,7 @@ class App(QWidget):
                     item.setData(Qt.ItemDataRole.UserRole, chat.get("filename", ""))
                     item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
                     self.chatList.addItem(item)
-                    self.chat_ids.append(chat.get("filename", "").removesuffix(".json").removeprefix("chat_"))
+                    self.chat_ids.append(int(chat.get("filename", "").removesuffix(".json").removeprefix("chat_")))
         except (FileNotFoundError, json.JSONDecodeError):
             self.create_new_chat("Default Chat")
 
@@ -1165,10 +1229,12 @@ class App(QWidget):
             content = message['content']
             while content.startswith("\n"):
                 content = content[1:]
-            content = md_to_html(content, extensions=["extra", "fenced_code", "sane_lists", "nl2br"])
             if role == 'user':
                 bubble = ChatBubble(content, "user")
+                bubble.editBranchBtn.clicked.connect(lambda _checked, b=bubble: self.branch_edit_bubble(bubble=b))
+                bubble.saveBtn.clicked.connect(lambda _checked, b=bubble: self.save_edit_bubble(bubble=b))
             elif role == 'assistant':
+                content = md_to_html(content, extensions=["extra", "fenced_code", "sane_lists", "nl2br"])
                 bubble = ChatBubble(content, "assistant")
                 stats = message.get('stats', {})
                 stats_html = f'''
@@ -1237,7 +1303,7 @@ class App(QWidget):
     def delete_down_bubble(self, bubble):
         index = self.chatDisplay.indexOf(bubble)
         if index >= 0:
-            for i in range(self.chatDisplay.count()-1, index-1, -1):
+            for i in range(self.chatDisplay.count()-1, index, -1):
                 item = self.chatDisplay.takeAt(i)
                 w = item.widget()
                 if w is not None:
@@ -1248,8 +1314,24 @@ class App(QWidget):
         index = self.chatDisplay.indexOf(bubble)
         history = []
         if index >= 0:
-            history = self.chatHistory[:index+1]
+            history = copy.deepcopy(self.chatHistory[:index+1])
             self.create_new_chat(title=self.chatList.currentItem().text()+" - Branch", history=history)
+
+    def branch_edit_bubble(self, bubble):
+        index = self.chatDisplay.indexOf(bubble)
+        history = []
+        if index >= 0:
+            history = copy.deepcopy(self.chatHistory[:index+1])
+            history[-1]['content'] = bubble.editbox.toPlainText().strip()
+            self.create_new_chat(title=self.chatList.currentItem().text()+" - Edit Branch", history=history)
+
+    def save_edit_bubble(self, bubble):
+        self.delete_down_bubble(bubble)
+        QApplication.processEvents()
+        self.chatHistory[-1]['content'] = bubble.editbox.toPlainText().strip()
+        bubble.text = bubble.editbox.toPlainText().strip()
+        bubble.layout().setCurrentIndex(0)
+        self.update_chat_display()
 
     def initModels(self):
         widget = QWidget()

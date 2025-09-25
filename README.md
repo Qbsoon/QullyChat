@@ -19,7 +19,7 @@ The idea was born out of my frustration with some things not available in LMStud
     - [x] Add regenerate button
     - [x] Add branch chat function
     - [x] Add delete button
-    - [ ] Edit made prompts (but only with regenerate & branch solutions)
+    - [x] Edit made prompts (but only with regenerate & branch solutions)
 - [x] Implement chats list
     - [ ] Ability to move chats on the list
     - [ ] Export chat
