@@ -305,7 +305,6 @@ class ChatBubble(QFrame):
         self.styleBase = ""
         self.margins = (0, 0, 0, 0)
         align = Qt.AlignmentFlag.AlignCenter
-        self._suppress_bubble_pop = False
 
         if self.speaker == "user":
             self.speaker = "User"
@@ -582,6 +581,9 @@ class App(QWidget):
         ]   # 0: llm settings tab; 1: llm model-specific settings; 2: chat-specific settings
         self.currentAddress = "http://127.0.0.1:5175/v1/chat/completions"
         self.last_stats = ""
+
+        self._suppress_bubble_pop = False
+        self._suppress_input = False
 
         self.mainLayout = QVBoxLayout()
         self.mainLayout.setContentsMargins(0, 0, 0, 0)
@@ -909,7 +911,7 @@ class App(QWidget):
         self.chatInput.setPlaceholderText("Type your prompt here...")
 
         sendBtn = QPushButton("Send")
-        sendBtn.clicked.connect(self.send_prompt)
+        sendBtn.clicked.connect(lambda _C: self.send_prompt(prompt_t="input"))
 
         inputLayout.addWidget(self.chatInput)
         inputLayout.addWidget(sendBtn)
@@ -1089,6 +1091,8 @@ class App(QWidget):
         return self.LLMSettings['system_prompt']
 
     def send_prompt(self, prompt_t="input"):
+        if self._suppress_input:
+            return
         if prompt_t == "input":
             prompt = self.chatInput.text().strip()
             if not prompt:
@@ -1100,6 +1104,7 @@ class App(QWidget):
             self.chatDisplay.addWidget(bubble_u)
             self.chatInput.clear()
         if self.modelSelect.currentIndex() >= 0:
+            self._suppress_input = True
             self.convert_chat_toLegacy()
             QApplication.processEvents()
             bubble_a = ChatBubble("", "assistant")
@@ -1108,7 +1113,7 @@ class App(QWidget):
             self.worker = LLMWorker(request, self.currentAddress)
             self.worker.token_emit.connect(lambda token: bubble_a.textbox.insertPlainText(token))
             self.worker.result_ready.connect(self.handle_reply)
-            self.worker.error_emit.connect(lambda e: bubble_a.textbox.insertPlainText(e))
+            self.worker.error_emit.connect(lambda e: self.error_returned(e))
             self.worker.stats_emit.connect(lambda s: self.connect_stats(s))
             self.worker.start()
             self.worker.exec()
@@ -1124,8 +1129,14 @@ class App(QWidget):
                 self.chatLegacyHistory.append(message)
 
     def handle_reply(self, reply):
+        print(reply)
         self.chatHistory.append({"role": "assistant", "content": reply.split("</think>")[1], "stats": self.last_stats})
         self.update_chat_display()
+        self._suppress_input = False
+    
+    def error_returned(self, error):
+        QMessageBox.warning(self, "Error", f"A server error occurred: {error}")
+        self._suppress_input = False
 
     def update_chat_display(self):
         self._suppress_bubble_pop = True
@@ -1193,13 +1204,13 @@ class App(QWidget):
                 last.deleteDownBtn.setVisible(False)
                 if last.speaker == 'User':
                     last.generateBtn.setVisible(True)
-                    last.generateBtn.clicked.connect(self.send_prompt)
+                    last.generateBtn.clicked.connect(lambda _c: self.send_prompt(prompt_t="manual"))
             elif atype == "rem":
                 last.deleteBtn.setVisible(True)
                 last.deleteDownBtn.setVisible(False)
                 if last.speaker == 'User':
                     last.generateBtn.setVisible(True)
-                    last.generateBtn.clicked.connect(self.send_prompt)
+                    last.generateBtn.clicked.connect(lambda _c: self.send_prompt(prompt_t="manual"))
                 if not self._suppress_bubble_pop:
                     self.chatHistory.pop()
         except:
