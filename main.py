@@ -15,6 +15,7 @@ from PyQt6.QtCore import (
     QTimer, Qt, QThread, pyqtSignal, QItemSelectionModel, QEvent, QPoint, QPropertyAnimation,
     QEasingCurve, pyqtProperty
 )
+from PyQt6.QtTest import QTest
 import sys
 import requests
 import sseclient
@@ -327,8 +328,12 @@ class ChatBubble(QFrame):
         self.deleteBtn.setToolTip("Delete this bubble")
         self.deleteBtn.clicked.connect(self.deleteLater)
         self.deleteBtn.setVisible(False)
+        self.generateBtn = QPushButton("Regenerate response")
+        self.generateBtn.setToolTip("Generate an assistant response")
+        self.generateBtn.setVisible(False)
         btnS.addWidget(copyBtn)
         btnS.addWidget(self.deleteBtn)
+        btnS.addWidget(self.generateBtn)
         layout.addLayout(btnS)
         self.setLayout(layout)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
@@ -621,7 +626,8 @@ class App(QWidget):
         self.mainLayout.addWidget(self.topBar)
 
     def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.Show and obj.metaObject().className() == "QComboBoxPrivateContainer":
+        if event.type() in (QEvent.Type.Show, QEvent.Type.Resize, QEvent.Type.ShowToParent) and obj.metaObject().className() in ("QComboBoxPrivateContainer", "QComboBoxPopupContainer", "QWidgetWindow"):
+            print("FILTER:", obj.metaObject().className(), event.type())
             c = obj.parent()
             if isinstance(c, QComboBox) and c is getattr(self, "modelSelect", None):
                 obj.move(c.mapToGlobal(QPoint(0, c.height()))); obj.setMinimumWidth(c.width())
@@ -1041,28 +1047,31 @@ class App(QWidget):
                 return msg['content']
         return self.LLMSettings['system_prompt']
 
-    def send_prompt(self):
-        prompt = self.chatInput.text().strip()
-        if not prompt:
-            return
-        if self.chatList.count() == 0:
-            self.create_new_chat("Default Chat")
-        self.chatHistory.append({"role": "user", "content": prompt})
-        bubble_u = ChatBubble(prompt, "user")
-        bubble_u.deleteBtn.clicked.connect
-        self.chatDisplay.addWidget(bubble_u)
-        self.chatInput.clear()
-        self.convert_chat_toLegacy()
-        QApplication.processEvents()
-        bubble_a = ChatBubble("", "assistant")
-        self.chatDisplay.addWidget(bubble_a)
-        request = {"messages": self.chatLegacyHistory, "max_tokens": -1, "n_predict": -1, "stream": True}
-        self.worker = LLMWorker(request, self.currentAddress)
-        self.worker.token_emit.connect(lambda token: bubble_a.textbox.insertPlainText(token))
-        self.worker.result_ready.connect(self.handle_reply)
-        self.worker.error_emit.connect(lambda e: bubble_a.textbox.insertPlainText(e))
-        self.worker.start()
-        self.worker.exec()
+    def send_prompt(self, prompt_t="input"):
+        if prompt_t == "input":
+            prompt = self.chatInput.text().strip()
+            if not prompt:
+                return
+            if self.chatList.count() == 0:
+                self.create_new_chat("Default Chat")
+            self.chatHistory.append({"role": "user", "content": prompt})
+            bubble_u = ChatBubble(prompt, "user")
+            self.chatDisplay.addWidget(bubble_u)
+            self.chatInput.clear()
+        if self.modelSelect.currentIndex() >= 0:
+            self.convert_chat_toLegacy()
+            QApplication.processEvents()
+            bubble_a = ChatBubble("", "assistant")
+            self.chatDisplay.addWidget(bubble_a)
+            request = {"messages": self.chatLegacyHistory, "max_tokens": -1, "n_predict": -1, "stream": True}
+            self.worker = LLMWorker(request, self.currentAddress)
+            self.worker.token_emit.connect(lambda token: bubble_a.textbox.insertPlainText(token))
+            self.worker.result_ready.connect(self.handle_reply)
+            self.worker.error_emit.connect(lambda e: bubble_a.textbox.insertPlainText(e))
+            self.worker.start()
+            self.worker.exec()
+        else:
+            QTest.mouseClick(self.modelSelect, Qt.MouseButton.LeftButton)
             
     def convert_chat_toLegacy(self):
         self.chatLegacyHistory = [self.chatHistory[0]]
@@ -1111,13 +1120,27 @@ class App(QWidget):
         self.save_chat()
 
     def bubbles_change(self, atype):
+        vlast = None
+        count = self.chatDisplay.count()
+        if count == 0:
+            return
+        last = self.chatDisplay.itemAt(count-1).widget()
+        if count > 1:
+            vlast = self.chatDisplay.itemAt(count-2).widget()
         try:
             if atype == "add":
-                if self.chatDisplay.count() > 1:
-                    self.chatDisplay.itemAt(self.chatDisplay.count()-2).widget().deleteBtn.setVisible(False)
-                self.chatDisplay.itemAt(self.chatDisplay.count()-1).widget().deleteBtn.setVisible(True)
+                if vlast is not None:
+                    vlast.deleteBtn.setVisible(False)
+                    vlast.generateBtn.setVisible(False)
+                last.deleteBtn.setVisible(True)
+                if last.speaker == 'User':
+                    last.generateBtn.setVisible(True)
+                    last.generateBtn.clicked.connect(self.send_prompt)
             elif atype == "rem":
-                self.chatDisplay.itemAt(self.chatDisplay.count()-1).widget().deleteBtn.setVisible(True)
+                last.deleteBtn.setVisible(True)
+                if last.speaker == 'User':
+                    last.generateBtn.setVisible(True)
+                    last.generateBtn.clicked.connect(self.send_prompt)
                 if not self._suppress_bubble_pop:
                     self.chatHistory.pop()
         except:

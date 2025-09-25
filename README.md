@@ -12,11 +12,11 @@ The idea was born out of my frustration with some things not available in LMStud
     - [x] Chat-bound settings edit
     - [x] Settings importance layers (Chat > Model > Profile)
     - [x] Base chat bubbles system
-    - [ ] Show generate button when sent with no model selected & prompt to choose model
-    - [ ] Move responses to separate boxes (User R-aligned, Assistant L-alligned, System C-alligned)
+    - [x] Show generate button when sent with no model selected & prompt to choose model
+    - [x] Move responses to separate boxes (User R-aligned, Assistant L-alligned, System C-alligned)
     - [x] Add copy button
     - [ ] Show statistics
-    - [ ] Add regenerate button
+    - [x] Add regenerate button
     - [ ] Add branch chat function
     - [x] Add delete button
     - [ ] Edit made prompts (but only with regenerate & branch solutions)
