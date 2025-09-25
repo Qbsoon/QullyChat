@@ -559,6 +559,7 @@ class App(QWidget):
         self.setMinimumSize(600, 338)
         self.setWindowTitle("Qully Chat")
 
+        self.chat_ids = []
         self.chatHistory = []
         self.chatLegacyHistory = []
         self.models = []
@@ -939,7 +940,11 @@ class App(QWidget):
             self.save_chat()
             self.chatHistory = [{"role": "system", "content": self.LLMSettings['system_prompt']}]
             chat = QListWidgetItem(title.strip())
-            chat.setData(Qt.ItemDataRole.UserRole, f"chat_{self.chatList.count()}.json")
+            number = self.chatList.count()
+            while number in self.chat_ids:
+                number += 1
+            self.chat_ids.append(number)
+            chat.setData(Qt.ItemDataRole.UserRole, f"chat_{number}.json")
             chat.setFlags(chat.flags() | Qt.ItemFlag.ItemIsEditable)
             self.chatList.addItem(chat)
             self.save_chat(chat)
@@ -954,11 +959,14 @@ class App(QWidget):
                 if chats.get("chats") is None:
                     self.create_new_chat("Default Chat")
                     return
+                self.chat_ids.clear()
                 for chat in chats.get("chats", []):
                     item = QListWidgetItem(chat.get("title", "Untitled Chat"))
                     item.setData(Qt.ItemDataRole.UserRole, chat.get("filename", ""))
                     item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
                     self.chatList.addItem(item)
+                    self.chat_ids.append(chat.get("filename", "").removesuffix(".json").removeprefix("chat_"))
+                    print(self.chat_ids)
         except (FileNotFoundError, json.JSONDecodeError):
             self.create_new_chat("Default Chat")
 
@@ -1139,16 +1147,16 @@ class App(QWidget):
                 bubble = ChatBubble(content, "assistant")
                 stats = message.get('stats', {})
                 stats_html = f'''
-<b>Time</b>
-<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Input (ms):</b> {stats.get('input_ms', "Unavailable")}</div>
-<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Generation (ms):</b> {stats.get('gen_ms', "Unavailable")}</div>
-<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Total (ms):</b> {stats.get('total_ms', "Unavailable")}</div>
-<b>Tokens</b>
-<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Input:</b> {stats.get('input_t', "Unavailable")}</div>
-<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Generated:</b> {stats.get('gen_t', "Unavailable")}</div>
-<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Total:</b> {stats.get('total_t', "Unavailable")}</div>
-<b>Tokens per second:</b> {stats.get('t_s', "Unavailable")}
-'''
+                    <b>Time</b>
+                    <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Input (ms):</b> {stats.get('input_ms', "Unavailable")}</div>
+                    <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Generation (ms):</b> {stats.get('gen_ms', "Unavailable")}</div>
+                    <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Total (ms):</b> {stats.get('total_ms', "Unavailable")}</div>
+                    <b>Tokens</b>
+                    <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Input:</b> {stats.get('input_t', "Unavailable")}</div>
+                    <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Generated:</b> {stats.get('gen_t', "Unavailable")}</div>
+                    <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Total:</b> {stats.get('total_t', "Unavailable")}</div>
+                    <b>Tokens per second:</b> {stats.get('t_s', "Unavailable")}
+                '''
                 bubble.statsBtn.info = stats_html
             elif role == 'system':
                 bubble = ChatBubble(content, "system")
