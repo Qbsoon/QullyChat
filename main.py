@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import (
     QTextCursor, QPixmap, QCursor, QIntValidator, QPainter, QColor, QBrush, QPen, QMouseEvent,
-    QTextOption
+    QTextOption, QFontDatabase, QFont
 )
 from PyQt6.QtCore import (
     QTimer, Qt, QThread, pyqtSignal, QItemSelectionModel, QEvent, QPoint, QPropertyAnimation,
@@ -306,6 +306,9 @@ class ChatBubble(QFrame):
         self.margins = (0, 0, 0, 0)
         align = Qt.AlignmentFlag.AlignCenter
 
+        font_id = QFontDatabase.addApplicationFont("FiraCodeNerdFont-Regular.ttf")
+        self.font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+
         if self.speaker == "user":
             self.speaker = "User"
             align = Qt.AlignmentFlag.AlignRight
@@ -325,6 +328,10 @@ class ChatBubble(QFrame):
         copyBtn.setToolTip("Copy text to clipboard")
         copyBtn.clicked.connect(self.copy_to_clipboard)
         copyBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        self.branchBtn = QPushButton("\ue0a0")
+        self.branchBtn.setFont(QFont(self.font_family))
+        self.branchBtn.setToolTip("Branch from this bubble to a new chat")
+        self.branchBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         self.deleteBtn = QPushButton("🗑")
         self.deleteBtn.setToolTip("Delete this bubble")
         self.deleteBtn.clicked.connect(self.deleteLater)
@@ -343,6 +350,7 @@ class ChatBubble(QFrame):
             self.statsBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
             btnS.addWidget(self.statsBtn)
         btnS.addWidget(copyBtn)
+        btnS.addWidget(self.branchBtn)
         btnS.addWidget(self.deleteBtn)
         btnS.addWidget(self.deleteDownBtn)
         btnS.addWidget(self.generateBtn)
@@ -936,7 +944,7 @@ class App(QWidget):
         self.tabs.addTab(widget, "Chat")
         self.load_chat_list()
 
-    def create_new_chat(self, title=None):
+    def create_new_chat(self, title=None, history=None):
         ok = True
         if isinstance(title, bool):
             title = None
@@ -944,7 +952,10 @@ class App(QWidget):
             title, ok = QInputDialog.getText(self, "New Chat", "Enter chat title:")
         if ok and title.strip():
             self.save_chat()
-            self.chatHistory = [{"role": "system", "content": self.LLMSettings['system_prompt']}]
+            if history is None:
+                self.chatHistory = [{"role": "system", "content": self.LLMSettings['system_prompt']}]
+            else:
+                self.chatHistory = history
             chat = QListWidgetItem(title.strip())
             number = self.chatList.count()
             while number in self.chat_ids:
@@ -1177,6 +1188,7 @@ class App(QWidget):
             else:
                 bubble = ChatBubble(content, role)
             bubble.deleteDownBtn.clicked.connect(lambda _checked, b=bubble: self.delete_down_bubble(bubble=b))
+            bubble.branchBtn.clicked.connect(lambda _checked, b=bubble: self.branch_bubble(bubble=b))
             self.chatDisplay.addWidget(bubble)
 
         if hasattr(self, "chatDisplayWidget"):
@@ -1231,6 +1243,13 @@ class App(QWidget):
                 if w is not None:
                     w.setParent(None)
                     w.deleteLater()
+
+    def branch_bubble(self, bubble):
+        index = self.chatDisplay.indexOf(bubble)
+        history = []
+        if index >= 0:
+            history = self.chatHistory[:index+1]
+            self.create_new_chat(title=self.chatList.currentItem().text()+" - Branch", history=history)
 
     def initModels(self):
         widget = QWidget()
