@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
 	QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit, QLineEdit,
 	QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QFileDialog, QSplitter,
     QDialog, QListWidget, QListWidgetItem, QInputDialog, QComboBox, QCheckBox, QSlider, QFrame,
-    QRadioButton, QScrollArea, QTextBrowser
+    QRadioButton, QScrollArea, QTextBrowser, QToolTip
 )
 from PyQt6.QtGui import (
     QTextCursor, QPixmap, QCursor, QIntValidator, QPainter, QColor, QBrush, QPen, QMouseEvent,
@@ -72,6 +72,7 @@ class LLMWorker(QThread):
     result_ready = pyqtSignal(str)
     token_emit = pyqtSignal(str)
     error_emit = pyqtSignal(str)
+    stats_emit = pyqtSignal(dict)
 
     def __init__(self, request, url):
         super().__init__()
@@ -94,7 +95,7 @@ class LLMWorker(QThread):
                     choices = chunk.get('choices', [])
                     if not choices:
                         if "usage" in chunk or "timings" in chunk:
-                            continue
+                            self.stats_emit.emit(chunk)
                         continue
                     delta = choices[0].get('delta', {})
                     token = delta.get('content')
@@ -324,16 +325,24 @@ class ChatBubble(QFrame):
         copyBtn = QPushButton("Copy")
         copyBtn.setToolTip("Copy text to clipboard")
         copyBtn.clicked.connect(self.copy_to_clipboard)
+        copyBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         self.deleteBtn = QPushButton("Delete")
         self.deleteBtn.setToolTip("Delete this bubble")
         self.deleteBtn.clicked.connect(self.deleteLater)
         self.deleteBtn.setVisible(False)
+        self.deleteBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         self.generateBtn = QPushButton("Regenerate response")
         self.generateBtn.setToolTip("Generate an assistant response")
         self.generateBtn.setVisible(False)
+        self.generateBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        if self.speaker == "Assistant":
+            self.statsBtn = HoverLabel("Statistics", "")
+            self.statsBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+            btnS.addWidget(self.statsBtn)
         btnS.addWidget(copyBtn)
         btnS.addWidget(self.deleteBtn)
         btnS.addWidget(self.generateBtn)
+        btnS.addStretch()
         layout.addLayout(btnS)
         self.setLayout(layout)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
@@ -522,6 +531,27 @@ class ChatBubbleText(QTextBrowser):
         self.setFixedHeight(h)
         self.updateGeometry()
 
+class HoverLabel(QPushButton):
+    def __init__(self, text, info):
+        super().__init__(text)
+        self.info = info
+
+    def enterEvent(self, event):
+        if self.info == "":
+            return
+        QToolTip.hideText()
+        QToolTip.showText(
+            self.mapToGlobal(self.rect().topLeft()),
+            self.info,
+            self
+        )
+        super().enterEvent(event)
+    
+    def leaveEvent(self, event):
+        QToolTip.hideText()
+        super().leaveEvent(event)
+
+
 class App(QWidget):
     def __init__(self):
         super().__init__()
@@ -546,6 +576,7 @@ class App(QWidget):
             {'type': 'text', 'name': 'system_prompt', 'display': 'System prompt', 'default': 'You are a helpful assistant.', 'use_case': [0, 1, 2]}
         ]   # 0: llm settings tab; 1: llm model-specific settings; 2: chat-specific settings
         self.currentAddress = "http://127.0.0.1:5175/v1/chat/completions"
+        self.last_stats = ""
 
         self.mainLayout = QVBoxLayout()
         self.mainLayout.setContentsMargins(0, 0, 0, 0)
@@ -627,7 +658,6 @@ class App(QWidget):
 
     def eventFilter(self, obj, event):
         if event.type() in (QEvent.Type.Show, QEvent.Type.Resize, QEvent.Type.ShowToParent) and obj.metaObject().className() in ("QComboBoxPrivateContainer", "QComboBoxPopupContainer", "QWidgetWindow"):
-            print("FILTER:", obj.metaObject().className(), event.type())
             c = obj.parent()
             if isinstance(c, QComboBox) and c is getattr(self, "modelSelect", None):
                 obj.move(c.mapToGlobal(QPoint(0, c.height()))); obj.setMinimumWidth(c.width())
@@ -1068,6 +1098,7 @@ class App(QWidget):
             self.worker.token_emit.connect(lambda token: bubble_a.textbox.insertPlainText(token))
             self.worker.result_ready.connect(self.handle_reply)
             self.worker.error_emit.connect(lambda e: bubble_a.textbox.insertPlainText(e))
+            self.worker.stats_emit.connect(lambda s: self.connect_stats(s))
             self.worker.start()
             self.worker.exec()
         else:
@@ -1082,7 +1113,7 @@ class App(QWidget):
                 self.chatLegacyHistory.append(message)
 
     def handle_reply(self, reply):
-        self.chatHistory.append({"role": "assistant", "content": reply.split("</think>")[1]})
+        self.chatHistory.append({"role": "assistant", "content": reply.split("</think>")[1], "stats": self.last_stats})
         self.update_chat_display()
 
     def update_chat_display(self):
@@ -1106,6 +1137,19 @@ class App(QWidget):
                 bubble = ChatBubble(content, "user")
             elif role == 'assistant':
                 bubble = ChatBubble(content, "assistant")
+                stats = message.get('stats', {})
+                stats_html = f'''
+<b>Time</b>
+<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Input (ms):</b> {stats.get('input_ms', "Unavailable")}</div>
+<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Generation (ms):</b> {stats.get('gen_ms', "Unavailable")}</div>
+<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Total (ms):</b> {stats.get('total_ms', "Unavailable")}</div>
+<b>Tokens</b>
+<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Input:</b> {stats.get('input_t', "Unavailable")}</div>
+<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Generated:</b> {stats.get('gen_t', "Unavailable")}</div>
+<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Total:</b> {stats.get('total_t', "Unavailable")}</div>
+<b>Tokens per second:</b> {stats.get('t_s', "Unavailable")}
+'''
+                bubble.statsBtn.info = stats_html
             elif role == 'system':
                 bubble = ChatBubble(content, "system")
             else:
@@ -1146,6 +1190,11 @@ class App(QWidget):
         except:
             pass
 
+    def connect_stats(self, stats_d):
+        self.last_stats = {'input_ms': round(stats_d['timings']['prompt_ms'], 2), 'gen_ms': round(stats_d['timings']['predicted_ms'], 2),
+                           'total_ms': round(stats_d['timings']['prompt_ms'] + stats_d['timings']['predicted_ms'], 2),
+                           'input_t': stats_d['usage']['prompt_tokens'], 'gen_t': stats_d['usage']['completion_tokens'],
+                           'total_t': stats_d['usage']['total_tokens'], 't_s': round(stats_d['timings']['predicted_per_second'], 2)}
 
     def initModels(self):
         widget = QWidget()

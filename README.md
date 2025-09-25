@@ -15,7 +15,7 @@ The idea was born out of my frustration with some things not available in LMStud
     - [x] Show generate button when sent with no model selected & prompt to choose model
     - [x] Move responses to separate boxes (User R-aligned, Assistant L-alligned, System C-alligned)
     - [x] Add copy button
-    - [ ] Show statistics
+    - [x] Show statistics
     - [x] Add regenerate button
     - [ ] Add branch chat function
     - [x] Add delete button
@@ -44,7 +44,7 @@ The idea was born out of my frustration with some things not available in LMStud
     - [ ] Setting up many models with same prompt
     - [ ] Rate each step of responses
     - [ ] Compare statistics (benchmark)
-- [ ] Store statistics in chat file
+- [x] Store statistics in chat file
 - [ ] Start splitting code into files
 - [x] Starting llama.cpp server in app
 - [x] Try to preserve system prompt history
