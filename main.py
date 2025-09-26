@@ -299,10 +299,11 @@ class ToggleSwitch(QRadioButton):
 		self._handle_position = self._get_target_handle_pos()
 
 class ChatBubble(QFrame):
-    def __init__(self, text, speaker):
+    def __init__(self, text, speaker, llm = None):
         super().__init__()
         self.text = text
         self.speaker = speaker
+        self.speaker_print = ""
         self.styleBase = ""
         self.margins = (0, 0, 0, 0)
         align = Qt.AlignmentFlag.AlignCenter
@@ -312,24 +313,29 @@ class ChatBubble(QFrame):
 
         if self.speaker == "user":
             self.speaker = "User"
+            self.speaker_print = self.speaker
             align = Qt.AlignmentFlag.AlignRight
         elif self.speaker == "assistant":
             self.speaker = "Assistant"
+            self.speaker_print = llm if llm else self.speaker
             align = Qt.AlignmentFlag.AlignLeft
         elif self.speaker == "system":
             self.speaker = "System"
+            self.speaker_print = self.speaker
 
         layout = QStackedLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         mainPage = QWidget()
         mainPage.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         mp_layout = QVBoxLayout()
-        label = QLabel(self.speaker)
+        label = QLabel(self.speaker_print)
         mp_layout.addWidget(label)
         self.textbox = ChatBubbleText(self.text, align=align)
-        mp_layout.addWidget(self.textbox)
+        mp_layout.addWidget(self.textbox, 10)
+
         btnS = QHBoxLayout()
         btnS.addStretch()
+        btnS.setSizeConstraint(QHBoxLayout.SizeConstraint.SetMinimumSize)
 
         if self.speaker == "Assistant":
             self.statsBtn = HoverLabel("📊", "")
@@ -373,42 +379,43 @@ class ChatBubble(QFrame):
         self.generateBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         btnS.addWidget(self.generateBtn)
 
-        mp_layout.addLayout(btnS)
+        mp_layout.addLayout(btnS, 1)
         mainPage.setLayout(mp_layout)
         layout.addWidget(mainPage)
 
-        editPage = QWidget()
-        ed_layout = QVBoxLayout()
-        self.editbox = QTextEdit()
-        self.editbox.setPlainText(self.text)
-        self.editbox.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
-        self.editbox.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        self.editbox.setMaximumHeight(self.textbox.height()*4)
-        self.editbox.setStyleSheet("QTextEdit { color: black; }")
-        ed_layout.addWidget(self.editbox)
-        ed_BtnS = QHBoxLayout()
-        ed_BtnS.addStretch()
+        if self.speaker == "User":
+            editPage = QWidget()
+            ed_layout = QVBoxLayout()
+            self.editbox = QTextEdit()
+            self.editbox.setPlainText(self.text)
+            self.editbox.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+            self.editbox.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+            self.editbox.setMaximumHeight(self.textbox.height()*4)
+            self.editbox.setStyleSheet("QTextEdit { color: black; }")
+            ed_layout.addWidget(self.editbox)
+            ed_BtnS = QHBoxLayout()
+            ed_BtnS.addStretch()
 
-        self.saveBtn = QPushButton("💾 && 🗑⬇")
-        self.saveBtn.setToolTip("Save changes and delete all bubbles below")
-        self.saveBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
-        ed_BtnS.addWidget(self.saveBtn)
+            self.saveBtn = QPushButton("💾 && 🗑⬇")
+            self.saveBtn.setToolTip("Save changes and delete all bubbles below")
+            self.saveBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+            ed_BtnS.addWidget(self.saveBtn)
 
-        self.editBranchBtn = QPushButton("\ue0a0")
-        self.editBranchBtn.setFont(QFont(self.font_family))
-        self.editBranchBtn.setToolTip("Branch to a new chat with edits")
-        self.editBranchBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
-        ed_BtnS.addWidget(self.editBranchBtn)
+            self.editBranchBtn = QPushButton("\ue0a0")
+            self.editBranchBtn.setFont(QFont(self.font_family))
+            self.editBranchBtn.setToolTip("Branch to a new chat with edits")
+            self.editBranchBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+            ed_BtnS.addWidget(self.editBranchBtn)
 
-        cancelBtn = QPushButton("❌")
-        cancelBtn.setToolTip("Cancel editing")
-        cancelBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
-        cancelBtn.clicked.connect(self.cancel_edit)
-        ed_BtnS.addWidget(cancelBtn)
+            cancelBtn = QPushButton("❌")
+            cancelBtn.setToolTip("Cancel editing")
+            cancelBtn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+            cancelBtn.clicked.connect(self.cancel_edit)
+            ed_BtnS.addWidget(cancelBtn)
 
-        ed_layout.addLayout(ed_BtnS)
-        editPage.setLayout(ed_layout)
-        layout.addWidget(editPage)
+            ed_layout.addLayout(ed_BtnS)
+            editPage.setLayout(ed_layout)
+            layout.addWidget(editPage)
 
         self.setLayout(layout)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
@@ -1204,8 +1211,7 @@ class App(QWidget):
                 self.chatLegacyHistory.append(message)
 
     def handle_reply(self, reply):
-        print(reply)
-        self.chatHistory.append({"role": "assistant", "content": reply.split("</think>")[1], "stats": self.last_stats})
+        self.chatHistory.append({"role": "assistant", "content": reply.split("</think>")[1], "llm": self.modelSelect.currentText(), "stats": self.last_stats})
         self.update_chat_display()
         self._suppress_input = False
     
@@ -1235,7 +1241,7 @@ class App(QWidget):
                 bubble.saveBtn.clicked.connect(lambda _checked, b=bubble: self.save_edit_bubble(bubble=b))
             elif role == 'assistant':
                 content = md_to_html(content, extensions=["extra", "fenced_code", "sane_lists", "nl2br"])
-                bubble = ChatBubble(content, "assistant")
+                bubble = ChatBubble(content, "assistant", llm=message.get('llm', None))
                 stats = message.get('stats', {})
                 stats_html = f'''
                     <b>Time</b>
