@@ -27,6 +27,7 @@ import subprocess
 import atexit
 import threading
 import copy
+import time
 
 class Llama_cpp(QThread):
     def __init__(self, options):
@@ -81,19 +82,24 @@ class LLMWorker(QThread):
         self.reply = ""
         self._is_running = True
         self.url = url
+        print("LLMWorker is created")
 
     def run(self):
+        print("LLMWorker is running")
         self._is_running = True
         try:
             response = requests.post(self.url, json=self.request, stream=True)
             client = sseclient.SSEClient(response)
             self.reply = ""
             for event in client.events():
+                print(f'Event: {event.data}')
                 if event.data.strip() == "[DONE]":
                     break
                 try:
                     chunk = json.loads(event.data)
+                    print(f'Chunk: {chunk}')
                     choices = chunk.get('choices', [])
+                    print(f'Choices: {choices}')
                     if not choices:
                         if "usage" in chunk or "timings" in chunk:
                             self.stats_emit.emit(chunk)
@@ -632,7 +638,20 @@ class HoverLabel(QPushButton):
         QToolTip.hideText()
         super().leaveEvent(event)
 
+def is_llama_server_running():
+    result = subprocess.run(
+        ["pgrep", "-f", "llama-server"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return result.returncode == 0
 
+def kill_llama_server():
+    subprocess.run(
+        ["pkill", "-f", "llama-server"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 class App(QWidget):
     def __init__(self):
         super().__init__()
@@ -658,10 +677,11 @@ class App(QWidget):
             {'type': 'text', 'name': 'system_prompt', 'display': 'System prompt', 'default': 'You are a helpful assistant.', 'use_case': [0, 1, 2]}
         ]   # 0: llm settings tab; 1: llm model-specific settings; 2: chat-specific settings
         self.currentAddress = "http://127.0.0.1:5175/v1/chat/completions"
-        self.last_stats = ""
+        self.last_stats = {}
 
         self._suppress_bubble_pop = False
         self._suppress_input = False
+        self._suppress_scroll_down = True
 
         self.mainLayout = QVBoxLayout()
         self.mainLayout.setContentsMargins(0, 0, 0, 0)
@@ -873,6 +893,10 @@ class App(QWidget):
         if hasattr(self, 'llama_thread') and self.llama_thread._is_running:
             self.llama_thread.stop()
             self.llama_thread.wait()
+        else:
+            while is_llama_server_running():
+                kill_llama_server()
+                time.sleep(0.1)
         self.llama_thread = Llama_cpp(options)
         self.llama_thread.start()
         self.llama_thread.exec()
@@ -971,7 +995,8 @@ class App(QWidget):
         self.chatDisplay.setContentsMargins(0, 0, 0, 0)
 
         def _bubbles_change_event(w, ev):
-            self.chatDisplayScroll.verticalScrollBar().setValue(self.chatDisplayScroll.verticalScrollBar().maximum())
+            if not self._suppress_scroll_down:
+                self.chatDisplayScroll.verticalScrollBar().setValue(self.chatDisplayScroll.verticalScrollBar().maximum())
             if ev.type() == QEvent.Type.ChildAdded:
                 if isinstance(ev.child(), ChatBubble):
                     QTimer.singleShot(0, lambda: self.bubbles_change(atype = "add"))
@@ -1189,6 +1214,7 @@ class App(QWidget):
             self.chatInput.clear()
         if self.modelSelect.currentIndex() >= 0:
             self._suppress_input = True
+            self._suppress_scroll_down = False
             self.convert_chat_toLegacy()
             QApplication.processEvents()
             bubble_a = ChatBubble("", "assistant")
@@ -1213,16 +1239,23 @@ class App(QWidget):
                 self.chatLegacyHistory.append(message)
 
     def handle_reply(self, reply):
-        self.chatHistory.append({"role": "assistant", "content": reply.split("</think>")[1], "llm": self.modelSelect.currentText(), "stats": self.last_stats})
+        print(f'Reply: {reply}')
+        if reply.startswith("<think>") and "</think>" in reply:
+            reply = reply.split("</think>")[1]
+        QApplication.processEvents()
+        self.chatHistory.append({"role": "assistant", "content": reply, "llm": self.modelSelect.currentText(), "stats": self.last_stats})
         self.update_chat_display()
         self._suppress_input = False
     
     def error_returned(self, error):
         QMessageBox.warning(self, "Error", f"A server error occurred: {error}")
         self._suppress_input = False
+        self._suppress_scroll_down = True
 
     def update_chat_display(self):
+        self.chatDisplayWidget.setVisible(False)
         self._suppress_bubble_pop = True
+        self._suppress_scroll_down = False
         while self.chatDisplay.count():
             item = self.chatDisplay.takeAt(0)
             w = item.widget()
@@ -1264,7 +1297,6 @@ class App(QWidget):
             bubble.deleteDownBtn.clicked.connect(lambda _checked, b=bubble: self.delete_down_bubble(bubble=b))
             bubble.branchBtn.clicked.connect(lambda _checked, b=bubble: self.branch_bubble(bubble=b))
             self.chatDisplay.addWidget(bubble)
-            self.chatDisplayScroll.verticalScrollBar().setValue(self.chatDisplayScroll.verticalScrollBar().maximum())
 
         #if hasattr(self, "chatDisplayWidget"):
         #    self.chatDisplayWidget.adjustSize()
@@ -1272,8 +1304,9 @@ class App(QWidget):
         #if hasattr(self, "chatDisplayScroll"):
         #    self.chatDisplayScroll.viewport().update()
         self.save_chat()
-        QTimer.singleShot(0, lambda: QTimer.singleShot(0, lambda: self.chatDisplayScroll.verticalScrollBar().setValue(self.chatDisplayScroll.verticalScrollBar().maximum())))
-        print("moved scroll")
+        self.chatDisplayWidget.setVisible(True)
+        QApplication.processEvents()
+        self._suppress_scroll_down = True
 
     def bubbles_change(self, atype):
         vlast = None

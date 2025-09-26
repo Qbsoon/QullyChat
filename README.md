@@ -54,7 +54,7 @@ The idea was born out of my frustration with some things not available in LMStud
 - [ ] Adjust settings tab for GenAI models
 - [ ] Package first release for github
 - [ ] Make looks adjustments
-    - [ ] Smoother chat switching
+    - [x] Smoother chat switching
     - [ ] ???
 
 ## v1-ready TO-DO
