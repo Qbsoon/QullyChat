@@ -964,6 +964,11 @@ class App(QWidget):
         self.chatList.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.chatList.itemChanged.connect(self.save_chat_list)
         self.chatList.currentItemChanged.connect(self.load_chat)
+        self.chatList.setDragEnabled(True)
+        self.chatList.setAcceptDrops(True)
+        self.chatList.setDropIndicatorShown(True)
+        self.chatList.setDragDropMode(self.chatList.DragDropMode.InternalMove)
+        self.chatList.model().rowsMoved.connect(self.save_chat_list)
 
         chatLLayout.addWidget(self.chatList)
         layout.addLayout(chatLLayout, 20)
