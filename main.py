@@ -971,6 +971,7 @@ class App(QWidget):
         self.chatDisplay.setContentsMargins(0, 0, 0, 0)
 
         def _bubbles_change_event(w, ev):
+            self.chatDisplayScroll.verticalScrollBar().setValue(self.chatDisplayScroll.verticalScrollBar().maximum())
             if ev.type() == QEvent.Type.ChildAdded:
                 if isinstance(ev.child(), ChatBubble):
                     QTimer.singleShot(0, lambda: self.bubbles_change(atype = "add"))
@@ -1069,6 +1070,7 @@ class App(QWidget):
             except (FileNotFoundError, json.JSONDecodeError):
                 self.chatHistory = [{"role": "system", "content": "You are a helpful assistant."}]
             self.update_chat_display()
+            QTimer.singleShot(0, lambda: self.chatDisplayScroll.verticalScrollBar().setValue(self.chatDisplayScroll.verticalScrollBar().maximum()))
     
     def save_chat(self, chat = None):
         if chat is None:
@@ -1262,13 +1264,16 @@ class App(QWidget):
             bubble.deleteDownBtn.clicked.connect(lambda _checked, b=bubble: self.delete_down_bubble(bubble=b))
             bubble.branchBtn.clicked.connect(lambda _checked, b=bubble: self.branch_bubble(bubble=b))
             self.chatDisplay.addWidget(bubble)
+            self.chatDisplayScroll.verticalScrollBar().setValue(self.chatDisplayScroll.verticalScrollBar().maximum())
 
-        if hasattr(self, "chatDisplayWidget"):
-            self.chatDisplayWidget.adjustSize()
-            self.chatDisplayWidget.update()
-        if hasattr(self, "chatDisplayScroll"):
-            self.chatDisplayScroll.viewport().update()
+        #if hasattr(self, "chatDisplayWidget"):
+        #    self.chatDisplayWidget.adjustSize()
+        #    self.chatDisplayWidget.update()
+        #if hasattr(self, "chatDisplayScroll"):
+        #    self.chatDisplayScroll.viewport().update()
         self.save_chat()
+        QTimer.singleShot(0, lambda: QTimer.singleShot(0, lambda: self.chatDisplayScroll.verticalScrollBar().setValue(self.chatDisplayScroll.verticalScrollBar().maximum())))
+        print("moved scroll")
 
     def bubbles_change(self, atype):
         vlast = None
