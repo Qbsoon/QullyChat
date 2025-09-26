@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
 	QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit, QLineEdit,
 	QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QFileDialog, QSplitter,
     QDialog, QListWidget, QListWidgetItem, QInputDialog, QComboBox, QCheckBox, QSlider, QFrame,
-    QRadioButton, QScrollArea, QTextBrowser, QToolTip, QStackedLayout
+    QRadioButton, QScrollArea, QTextBrowser, QToolTip, QStackedLayout, QMenu
 )
 from PyQt6.QtGui import (
     QTextCursor, QPixmap, QCursor, QIntValidator, QPainter, QColor, QBrush, QPen, QMouseEvent,
@@ -628,7 +628,7 @@ class HoverLabel(QPushButton):
             return
         QToolTip.hideText()
         QToolTip.showText(
-            self.mapToGlobal(self.rect().topLeft()),
+            self.mapToGlobal(QPoint(0, self.height())),
             self.info,
             self
         )
@@ -958,6 +958,15 @@ class App(QWidget):
         removeChatsBtn.clicked.connect(self.remove_chat)
         chatLButtons.addWidget(removeChatsBtn)
 
+        exportChatBtn = QPushButton("📤")
+        exportChatBtn.setToolTip("Export selected chat session")
+        exportMenu = QMenu()
+        exportMenu.addAction("Export as JSON", lambda: self.export_chat_json())
+        exportMenu.addAction("Export as HTML", lambda: self.export_chat_html())
+        exportMenu.addAction("Export as Markdown", lambda: self.export_chat_md())
+        exportChatBtn.clicked.connect(lambda _: exportMenu.exec(exportChatBtn.mapToGlobal(QPoint(0, exportChatBtn.height()))))
+        chatLButtons.addWidget(exportChatBtn)
+
         chatLLayout.addLayout(chatLButtons)
 
         self.chatList = QListWidget()
@@ -1235,13 +1244,22 @@ class App(QWidget):
         else:
             QTest.mouseClick(self.modelSelect, Qt.MouseButton.LeftButton)
             
-    def convert_chat_toLegacy(self):
-        self.chatLegacyHistory = [self.chatHistory[0]]
-        for message in self.chatHistory:
-            if message['role'] == 'system':
-                self.chatLegacyHistory[0] = message
-            else:
-                self.chatLegacyHistory.append(message)
+    def convert_chat_toLegacy(self, chat=None):
+        if chat is None:
+            self.chatLegacyHistory = [self.chatHistory[0]]
+            for message in self.chatHistory:
+                if message['role'] == 'system':
+                    self.chatLegacyHistory[0] = message
+                else:
+                    self.chatLegacyHistory.append(message)
+        else:
+            chatLegacy = [chat[0]]
+            for message in chat:
+                if message['role'] == 'system':
+                    chatLegacy[0] = message
+                else:
+                    chatLegacy.append(message)
+            return chatLegacy
 
     def handle_reply(self, reply):
         print(f'Reply: {reply}')
@@ -1381,6 +1399,39 @@ class App(QWidget):
         bubble.text = bubble.editbox.toPlainText().strip()
         bubble.layout().setCurrentIndex(0)
         self.update_chat_display()
+
+    def export_chat_json(self):
+        selected_chats = self.chatList.selectedItems()
+        if not selected_chats:
+            QMessageBox.information(self, "No Chat Selected", "Please select a chat to export.")
+            return
+        chat = selected_chats[0]
+        chat_data = {}
+        filename = chat.data(Qt.ItemDataRole.UserRole)
+        try:
+            with open("chats/" + filename, "r") as f:
+                chat_data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            QMessageBox.critical(self, "Error", "Failed to load the selected chat.")
+            return
+        chat_data_legacy = self.convert_chat_toLegacy(chat_data['history'])
+        options = QFileDialog.Option(0)
+        options |= QFileDialog.Option.DontUseNativeDialog
+        save_path, _ = QFileDialog.getSaveFileName(self, "Export Chat as JSON", f"{chat.text()}.json", "JSON Files (*.json);;All Files (*)", options=options)
+        if not save_path:
+            return
+        try:
+            with open(save_path, "w") as f:
+                json.dump({"title": chat.text(), "history": chat_data_legacy}, f, indent=4)
+            QMessageBox.information(self, "Success", f"Chat {chat.text()} exported successfully to {save_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to export chat {chat.text()}: {e}")
+
+    def export_chat_html(self):
+        pass
+
+    def export_chat_md(self):
+        pass
 
     def initModels(self):
         widget = QWidget()
