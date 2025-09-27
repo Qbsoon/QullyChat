@@ -1428,7 +1428,60 @@ class App(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to export chat {chat.text()}: {e}")
 
     def export_chat_html(self):
-        pass
+        selected_chats = self.chatList.selectedItems()
+        if not selected_chats:
+            QMessageBox.information(self, "No Chat Selected", "Please select a chat to export.")
+            return
+        chat = selected_chats[0]
+        chat_data = {}
+        filename = chat.data(Qt.ItemDataRole.UserRole)
+        try:
+            with open("chats/" + filename, "r") as f:
+                chat_data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            QMessageBox.critical(self, "Error", "Failed to load the selected chat.")
+            return
+        chat_html = f"<html><head><meta charset='UTF-8'><title>{chat.text()}</title></head><body>"
+        for message in chat_data['history']:
+            role = message['role']
+            content = message['content']
+            if role == 'user':
+                chat_html += f"<div style='background-color:#d1e7dd;padding:10px;margin:10px;border-radius:10px;'><b>User:</b><br>{content}</div>"
+            elif role == 'assistant':
+                name = message.get('llm', 'Assistant')
+                stats = message.get('stats', {})
+                if not stats:
+                    chat_html += f"<div style='background-color:#f8d7da;padding:10px;margin:10px;border-radius:10px;'><b>{name}:</b><br>{md_to_html(content, extensions=['extra', 'fenced_code', 'sane_lists', 'nl2br'])}</div>"
+                else:
+                    stats_html = f'''
+                        <b>Time</b>
+                        <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Input (ms):</b> {stats.get('input_ms', "Unavailable")}</div>
+                        <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Generation (ms):</b> {stats.get('gen_ms', "Unavailable")}</div>
+                        <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Total (ms):</b> {stats.get('total_ms', "Unavailable")}</div>
+                        <b>Tokens</b>
+                        <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Input:</b> {stats.get('input_t', "Unavailable")}</div>
+                        <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Generated:</b> {stats.get('gen_t', "Unavailable")}</div>
+                        <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Total:</b> {stats.get('total_t', "Unavailable")}</div>
+                        <b>Tokens per second:</b> {stats.get('t_s', "Unavailable")}
+                    '''
+                    chat_html += f"<div style='background-color:#f8d7da;padding:10px;margin:10px;border-radius:10px;'><b>{name}:</b><br>{md_to_html(content, extensions=['extra', 'fenced_code', 'sane_lists', 'nl2br'])}<br><hr><div style='font-size:small;color:#6c757d;'>{stats_html}</div></div>"
+            elif role == 'system':
+                chat_html += f"<div style='background-color:#cff4fc;padding:10px;margin:10px;border-radius:10px;'><b>System:</b><br>{content}</div>"
+            else:
+                chat_html += f"<div style='background-color:#e2e3e5;padding:10px;margin:10px;border-radius:10px;'><b>{role.capitalize()}:</b><br>{content}</div>"
+        chat_html += "</body></html>"
+        options = QFileDialog.Option(0)
+        options |= QFileDialog.Option.DontUseNativeDialog
+        save_path, _ = QFileDialog.getSaveFileName(self, "Export Chat as HTML", f"{chat.text()}.html", "HTML Files (*.html);;All Files (*)", options=options)
+        if not save_path:
+            return
+        try:
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.write(chat_html)
+            QMessageBox.information(self, "Success", f"Chat {chat.text()} exported successfully to {save_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to export chat {chat.text()}: {e}")
+                
 
     def export_chat_md(self):
         pass

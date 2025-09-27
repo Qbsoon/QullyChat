@@ -25,7 +25,7 @@ The idea was born out of my frustration with some things not available in LMStud
     - [x] Ability to move chats on the list
     - [x] Export chat
         - [x] As JSON
-        - [ ] As HTML
+        - [x] As HTML
         - [ ] As Markdown
     - [x] Renaming chats
 - [x] Implement LLM model list
