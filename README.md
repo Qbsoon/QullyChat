@@ -58,6 +58,8 @@ The idea was born out of my frustration with some things not available in LMStud
 - [ ] Package first release for github
 - [ ] Make looks adjustments
     - [x] Smoother chat switching
+    - [ ] Looks of HTML export
+    - [ ] Looks of Markdown export
     - [ ] ???
 
 ## v1-ready TO-DO
