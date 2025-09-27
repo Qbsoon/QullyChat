@@ -1481,10 +1481,59 @@ class App(QWidget):
             QMessageBox.information(self, "Success", f"Chat {chat.text()} exported successfully to {save_path}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to export chat {chat.text()}: {e}")
-                
 
     def export_chat_md(self):
-        pass
+        selected_chats = self.chatList.selectedItems()
+        if not selected_chats:
+            QMessageBox.information(self, "No Chat Selected", "Please select a chat to export.")
+            return
+        chat = selected_chats[0]
+        chat_data = {}
+        filename = chat.data(Qt.ItemDataRole.UserRole)
+        try:
+            with open("chats/" + filename, "r") as f:
+                chat_data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            QMessageBox.critical(self, "Error", "Failed to load the selected chat.")
+            return
+        chat_md = f"# {chat.text()}\n\n"
+        for message in chat_data['history']:
+            role = message['role']
+            content = message['content']
+            if role == 'user':
+                chat_md += f"**User:**\n\n{content}\n\n"
+            elif role == 'assistant':
+                name = message.get('llm', 'Assistant')
+                stats = message.get('stats', {})
+                if not stats:
+                    chat_md += f"**{name}:**\n\n{content}\n\n"
+                else:
+                    stats_md = f'''**{name} - Statistics:**
+                        - **Time**: {stats.get('time', "Unavailable")}
+                        - **Input (ms)**: {stats.get('input_ms', "Unavailable")}
+                        - **Generation (ms)**: {stats.get('gen_ms', "Unavailable")}
+                        - **Total (ms)**: {stats.get('total_ms', "Unavailable")}
+                        - **Tokens**: {stats.get('total_t', "Unavailable")}
+                        - **Input**: {stats.get('input_t', "Unavailable")}
+                        - **Generated**: {stats.get('gen_t', "Unavailable")}
+                        - **Tokens per second**: {stats.get('t_s', "Unavailable")}
+                    '''
+                    chat_md += f"**{name}:**\n\n{content}\n\n{stats_md}\n\n"
+            elif role == 'system':
+                chat_md += f"**System:**\n\n{content}\n\n"
+            else:
+                chat_md += f"**{role.capitalize()}:**\n\n{content}\n\n"
+        options = QFileDialog.Option(0)
+        options |= QFileDialog.Option.DontUseNativeDialog
+        save_path, _ = QFileDialog.getSaveFileName(self, "Export Chat as Markdown", f"{chat.text()}.md", "Markdown Files (*.md);;All Files (*)", options=options)
+        if not save_path:
+            return
+        try:
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.write(chat_md)
+            QMessageBox.information(self, "Success", f"Chat {chat.text()} exported successfully to {save_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to export chat {chat.text()}: {e}")
 
     def initModels(self):
         widget = QWidget()
