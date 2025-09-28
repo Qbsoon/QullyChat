@@ -35,7 +35,7 @@ The idea was born out of my frustration with some things not available in LMStud
     - [ ] Models sorting
     - [ ] Models grouping (by same family, by same model and different weights/parameters)
     - [ ] Models filtering
-- [ ] Generate requirements.txt
+- [x] Generate requirements.txt
 - [x] Add settings tab
     - [x] Settings profiles
     - [x] Default settings
@@ -55,6 +55,7 @@ The idea was born out of my frustration with some things not available in LMStud
 - [ ] Implement Image Generation in chat
 - [ ] Implement GenAI model list
 - [ ] Adjust settings tab for GenAI models
+- [ ] Setup a llama.cpp download tab
 - [ ] Package first release for github
 - [ ] Make looks adjustments
     - [x] Smoother chat switching
