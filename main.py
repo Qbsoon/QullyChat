@@ -1573,6 +1573,7 @@ class App(QWidget):
         self.modelsTable.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.modelsTable.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.modelsTable.itemSelectionChanged.connect(lambda: self.settings_model(change=True))
+        self.modelsTable.setSortingEnabled(True)
 
         for model in self.models:
             row = self.modelsTable.rowCount()
