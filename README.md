@@ -30,7 +30,7 @@ The idea was born out of my frustration with some things not available in LMStud
     - [x] Renaming chats
 - [x] Implement LLM model list
     - [x] Model-bound settings edit
-    - [ ] Make columns correct wideness
+    - [x] Make columns correct wideness
     - [ ] Add more info
     - [x] Models sorting
     - [ ] Models grouping (by same family, by same model and different weights/parameters)

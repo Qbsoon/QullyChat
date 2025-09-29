@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
 	QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit, QLineEdit,
 	QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QFileDialog, QSplitter,
     QDialog, QListWidget, QListWidgetItem, QInputDialog, QComboBox, QCheckBox, QSlider, QFrame,
-    QRadioButton, QScrollArea, QTextBrowser, QToolTip, QStackedLayout, QMenu
+    QRadioButton, QScrollArea, QTextBrowser, QToolTip, QStackedLayout, QMenu, QHeaderView
 )
 from PyQt6.QtGui import (
     QTextCursor, QPixmap, QCursor, QIntValidator, QPainter, QColor, QBrush, QPen, QMouseEvent,
@@ -1566,7 +1566,7 @@ class App(QWidget):
 
         self.modelsTable = QTableWidget()
         self.modelsTable.setColumnCount(5)
-        self.modelsTable.setHorizontalHeaderLabels(["Path", "Name", "Parameters","Weights", "Layers"])
+        self.modelsTable.setHorizontalHeaderLabels(["Name", "Parameters","Weights", "Layers", "Path"])
         self.modelsTable.horizontalHeader().setStretchLastSection(True)
         self.modelsTable.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.modelsTable.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -1575,16 +1575,7 @@ class App(QWidget):
         self.modelsTable.itemSelectionChanged.connect(lambda: self.settings_model(change=True))
         self.modelsTable.setSortingEnabled(True)
 
-        for model in self.models:
-            row = self.modelsTable.rowCount()
-            self.modelsTable.insertRow(row)
-            self.modelsTable.setItem(row, 0, QTableWidgetItem(model.get("path", "")))
-            self.modelsTable.setItem(row, 1, QTableWidgetItem(model.get("name", "")))
-            self.modelsTable.setItem(row, 2, QTableWidgetItem(str(model.get("parameters", ""))))
-            self.modelsTable.setItem(row, 3, QTableWidgetItem(str(model.get("weights", ""))))
-            self.modelsTable.setItem(row, 4, QTableWidgetItem(str(model.get("layers", ""))))
-
-            self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", {"row": str(row), "path": model.get("path", "")})
+        self.refresh_models_table()
 
         modelsLayout.addWidget(self.modelsTable, 65)
 
@@ -1692,15 +1683,16 @@ class App(QWidget):
         for model in self.models:
             row = self.modelsTable.rowCount()
             self.modelsTable.insertRow(row)
-            self.modelsTable.setItem(row, 0, QTableWidgetItem(model.get("path", "")))
-            self.modelsTable.setItem(row, 1, QTableWidgetItem(model.get("name", "")))
-            self.modelsTable.setItem(row, 2, QTableWidgetItem(str(model.get("parameters", ""))))
-            self.modelsTable.setItem(row, 3, QTableWidgetItem(str(model.get("weights", ""))))
-            self.modelsTable.setItem(row, 4, QTableWidgetItem(str(model.get("layers", ""))))
+            self.modelsTable.setItem(row, 0, QTableWidgetItem(model.get("name", "")))
+            self.modelsTable.setItem(row, 1, QTableWidgetItem(str(model.get("parameters", ""))))
+            self.modelsTable.setItem(row, 2, QTableWidgetItem(str(model.get("weights", ""))))
+            self.modelsTable.setItem(row, 3, QTableWidgetItem(str(model.get("layers", ""))))
+            self.modelsTable.setItem(row, 4, QTableWidgetItem(model.get("path", "")))
 
             self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", {"row": str(row), "path": model.get("path", "")})
         with open("models/models.json", "w") as f:
             json.dump({"models": self.models}, f, indent=4)
+        QTimer.singleShot(0, lambda: self.modelsTable.resizeColumnToContents(0))
 
     def initLLMSettings(self):
         widget = QWidget()
