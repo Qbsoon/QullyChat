@@ -28,6 +28,7 @@ import atexit
 import threading
 import copy
 import time
+from pathlib import Path
 
 class Llama_cpp(QThread):
     def __init__(self, options):
@@ -192,6 +193,13 @@ class GGUFInfoWoker(QThread):
                     info.update({"weights": self.weights_map.get(self.maybe_decode(field.parts[field.data[0]]), f"Unknown ({field.data[0]})")})
                 elif key.endswith("block_count"):
                     info.update({"layers": str(self.maybe_decode(field.parts[field.data[0]]))})
+            path = Path(self.model_path)
+            size_bytes = path.stat().st_size
+            for unit in ['B', 'KB', 'MB', 'GB', 'TB', 'PB']:
+                if size_bytes < 1024:
+                    info.update({"size": f"{size_bytes:.2f} {unit}"})
+                    break
+                size_bytes /= 1024
             if "name" not in info:
                 info["name"] = "Unknown"
             if "parameters" not in info:
@@ -200,9 +208,11 @@ class GGUFInfoWoker(QThread):
                 info["weights"] = "Unknown"
             if "layers" not in info:
                 info["layers"] = "Unknown"
+            if "size" not in info:
+                info["size"] = "Unknown"
         except Exception as e:
-            info = {"path": self.model_path, "name": "Error", "parameters": "Error", "weights": "Error", "layers": "Error"}
-        
+            info = {"path": self.model_path, "name": "Error", "parameters": "Error", "weights": "Error", "layers": "Error", "size": "Error"}
+
         self.info_ready.emit(info)
 
         if not self._is_running:
@@ -1565,8 +1575,8 @@ class App(QWidget):
         modelsLayout = QHBoxLayout()
 
         self.modelsTable = QTableWidget()
-        self.modelsTable.setColumnCount(5)
-        self.modelsTable.setHorizontalHeaderLabels(["Name", "Parameters","Weights", "Layers", "Path"])
+        self.modelsTable.setColumnCount(6)
+        self.modelsTable.setHorizontalHeaderLabels(["Name", "Parameters","Weights", "Layers", "Size", "Path"])
         self.modelsTable.horizontalHeader().setStretchLastSection(True)
         self.modelsTable.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.modelsTable.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -1611,17 +1621,17 @@ class App(QWidget):
         parameters = info.get("parameters", "Unknown")
         weights = info.get("weights", "Unknown")
         layers = info.get("layers", "Unknown")
-        print(self.models)
+        size = info.get("size", "Unknown")
 
         self.models.append({
             "path": file_path,
             "name": name,
             "parameters": parameters,
             "weights": weights,
-            "layers": layers
+            "layers": layers,
+            "size": size
         })
         QApplication.processEvents()
-        print(self.models)
         self.refresh_models_table()
 
     def remove_model(self):
@@ -1687,11 +1697,12 @@ class App(QWidget):
         for model in self.models:
             row = self.modelsTable.rowCount()
             self.modelsTable.insertRow(row)
-            self.modelsTable.setItem(row, 0, QTableWidgetItem(model.get("name", "")))
-            self.modelsTable.setItem(row, 1, QTableWidgetItem(str(model.get("parameters", ""))))
-            self.modelsTable.setItem(row, 2, QTableWidgetItem(str(model.get("weights", ""))))
-            self.modelsTable.setItem(row, 3, QTableWidgetItem(str(model.get("layers", ""))))
-            self.modelsTable.setItem(row, 4, QTableWidgetItem(model.get("path", "")))
+            self.modelsTable.setItem(row, 0, QTableWidgetItem(model.get("name", "Unknown")))
+            self.modelsTable.setItem(row, 1, QTableWidgetItem(str(model.get("parameters", "Unknown"))))
+            self.modelsTable.setItem(row, 2, QTableWidgetItem(str(model.get("weights", "Unknown"))))
+            self.modelsTable.setItem(row, 3, QTableWidgetItem(str(model.get("layers", "Unknown"))))
+            self.modelsTable.setItem(row, 4, QTableWidgetItem(str(model.get("size", "Unknown"))))
+            self.modelsTable.setItem(row, 5, QTableWidgetItem(model.get("path", "Unknown")))
             self.modelsTable.item(row, 0).setData(Qt.ItemDataRole.UserRole, str(row))
 
             self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", {"row": str(row), "path": model.get("path", "")})
