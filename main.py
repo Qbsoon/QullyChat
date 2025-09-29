@@ -1611,6 +1611,7 @@ class App(QWidget):
         parameters = info.get("parameters", "Unknown")
         weights = info.get("weights", "Unknown")
         layers = info.get("layers", "Unknown")
+        print(self.models)
 
         self.models.append({
             "path": file_path,
@@ -1619,7 +1620,8 @@ class App(QWidget):
             "weights": weights,
             "layers": layers
         })
-
+        QApplication.processEvents()
+        print(self.models)
         self.refresh_models_table()
 
     def remove_model(self):
@@ -1627,7 +1629,8 @@ class App(QWidget):
         if not selected_rows:
             QMessageBox.warning(self, "Warning", "No model selected.")
             return
-        row = selected_rows[0].row()
+        row_n = selected_rows[0].row()
+        row = int(self.modelsTable.item(row_n, 0).data(Qt.ItemDataRole.UserRole))
         del self.models[row]
         self.refresh_models_table()
 
@@ -1672,6 +1675,7 @@ class App(QWidget):
                         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEnabled)
 
     def refresh_models_table(self):
+        self.modelsTable.setSortingEnabled(False)
         self.modelsTable.setRowCount(0)
         self.modelSelect.clear()
         if not os.path.exists("models"):
@@ -1688,11 +1692,13 @@ class App(QWidget):
             self.modelsTable.setItem(row, 2, QTableWidgetItem(str(model.get("weights", ""))))
             self.modelsTable.setItem(row, 3, QTableWidgetItem(str(model.get("layers", ""))))
             self.modelsTable.setItem(row, 4, QTableWidgetItem(model.get("path", "")))
+            self.modelsTable.item(row, 0).setData(Qt.ItemDataRole.UserRole, str(row))
 
             self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", {"row": str(row), "path": model.get("path", "")})
         with open("models/models.json", "w") as f:
             json.dump({"models": self.models}, f, indent=4)
         QTimer.singleShot(0, lambda: self.modelsTable.resizeColumnToContents(0))
+        self.modelsTable.setSortingEnabled(True)
 
     def initLLMSettings(self):
         widget = QWidget()
