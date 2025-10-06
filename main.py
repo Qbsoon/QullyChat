@@ -29,6 +29,7 @@ import threading
 import copy
 import time
 from pathlib import Path
+import psutil
 
 class Llama_cpp(QThread):
     def __init__(self, options):
@@ -38,7 +39,8 @@ class Llama_cpp(QThread):
 
     def run(self):
         self._is_running = True
-        command = ["./llama/llama-server", "-m", self.options['model_path'], "--host", "127.0.0.1", "--port", str(self.options['port']), "-n", "-1"]
+        llama_path = Path("llama") / "llama-server"
+        command = [str(llama_path), "-m", self.options['model_path'], "--host", "127.0.0.1", "--port", str(self.options['port']), "-n", "-1"]
         if self.options['threads'] > 0:
             command += ["-t", str(self.options['threads'])]
         if self.options['gpu_layers'] > 0:
@@ -648,20 +650,32 @@ class HoverLabel(QPushButton):
         QToolTip.hideText()
         super().leaveEvent(event)
 
-def is_llama_server_running():
-    result = subprocess.run(
-        ["pgrep", "-f", "llama-server"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    return result.returncode == 0
+def _matches(proc: psutil.Process) -> bool:
+    try:
+        name = (proc.info.get("name") or "").lower()
+        if "llama-server" in name:
+            return True
+        cmd = " ".join(proc.info.get("cmdline") or []).lower()
+        return "llama-server" in cmd
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        return False
 
-def kill_llama_server():
-    subprocess.run(
-        ["pkill", "-f", "llama-server"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+def is_llama_server_running() -> bool:
+    return any(_matches(p) for p in psutil.process_iter(attrs=["name", "cmdline"]))
+
+def kill_llama_server(timeout: float = 3.0) -> None:
+    procs = [p for p in psutil.process_iter(attrs=["name", "cmdline"]) if _matches(p)]
+    for p in procs:
+        try:
+            p.terminate()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    gone, alive = psutil.wait_procs(procs, timeout=timeout)
+    for p in alive:
+        try:
+            p.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
 class App(QWidget):
     def __init__(self):
         super().__init__()
@@ -855,8 +869,9 @@ class App(QWidget):
         if chat:
             filename = chat.data(Qt.ItemDataRole.UserRole)
             filename = filename[:-5]
-            if os.path.exists(f"chats/{filename}_settings.json"):
-                self.loadLLMSettings(path=f"chats/{filename}_settings.json", type=2, display=0)
+            path = Path("chats") / f"{filename}_settings.json"
+            if path.exists():
+                self.loadLLMSettings(path=path, type_f=2, display=0)
                 if self.LLMSettings.get('chat_settings', False) == True:
                     if settings_set == 0:
                         settings_set = 1
@@ -867,7 +882,7 @@ class App(QWidget):
                                 settings_build[key] = value
         ### if model has settings
         idx = self.modelSelect.itemData(index)['row']
-        self.loadLLMSettings(path=self.models[int(idx)].get("path", ""), type=1, display=0)
+        self.loadLLMSettings(path=self.models[int(idx)].get("path", ""), type_f=1, display=0)
         if self.LLMSettings.get('model_settings', False) == True:
             if settings_set == 0:
                 settings_set = 1
@@ -877,7 +892,8 @@ class App(QWidget):
                     if key not in settings_build:
                         settings_build[key] = value
         ### else use profile settings
-        self.loadLLMSettings(path=f"settings/{self.profileSelect.currentData()}", type=0, display=0)
+        path = Path("settings") / f"{self.profileSelect.currentData()}"
+        self.loadLLMSettings(path=path, type_f=0, display=0)
         if settings_set == 0:
             settings_build = self.LLMSettings.copy()
         else:
@@ -1092,7 +1108,8 @@ class App(QWidget):
     
     def load_chat_list(self):
         try:
-            with open("chats/chat_list.json", "r") as f:
+            path = Path("chats") / "chat_list.json"
+            with open(path, "r") as f:
                 chats = json.load(f)
                 if chats.get("chats") is None:
                     self.create_new_chat("Default Chat")
@@ -1110,11 +1127,13 @@ class App(QWidget):
     def load_chat(self):
         chat = self.chatList.currentItem()
         if chat:
-            if not os.path.exists("chats"):
-                os.makedirs("chats")
+            path = Path("chats")
+            if not path.exists():
+                path.mkdir(parents=False, exist_ok=True)
             filename = chat.data(Qt.ItemDataRole.UserRole)
             try:
-                with open("chats/" + filename, "r") as f:
+                path = path / f"{filename}"
+                with open(path, "r") as f:
                     self.chatHistory = json.load(f).get("history", [{"role": "system", "content": "You are a helpful assistant."}])
             except (FileNotFoundError, json.JSONDecodeError):
                 self.chatHistory = [{"role": "system", "content": "You are a helpful assistant."}]
@@ -1125,19 +1144,22 @@ class App(QWidget):
         if chat is None:
             chat = self.chatList.currentItem()
         if chat:
-            if not os.path.exists("chats"):
-                os.makedirs("chats")
+            path = Path("chats")
+            if not path.exists():
+                path.mkdir(parents=False, exist_ok=True)
             filename = chat.data(Qt.ItemDataRole.UserRole)
             try:
-                with open("chats/" + filename, "w") as f:
+                path = path / f"{filename}"
+                with open(path, "w") as f:
                     json.dump({"title": chat.text(), "history": self.chatHistory}, f, indent=4)
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to save chat: {e}")
                 return
     
     def save_chat_list(self):
-        if not os.path.exists("chats"):
-            os.makedirs("chats")
+        path = Path("chats")
+        if not path.exists():
+            path.mkdir(parents=False, exist_ok=True)
         chats = []
         for i in range(self.chatList.count()):
             item = self.chatList.item(i)
@@ -1146,7 +1168,8 @@ class App(QWidget):
             self.chatHistory = []
             self.update_chat_display()
         try:
-            with open("chats/chat_list.json", "w") as f:
+            path = path / "chat_list.json"
+            with open(path, "w") as f:
                 json.dump({"chats": chats}, f, indent=4)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save chat list: {e}")
@@ -1161,7 +1184,8 @@ class App(QWidget):
             self.chatList.takeItem(self.chatList.row(chat))
             filename = chat.data(Qt.ItemDataRole.UserRole)
             try:
-                os.remove("chats/" + filename)
+                path = Path("chats") / f"{filename}"
+                path.unlink(missing_ok=True)
                 self.save_chat_list()
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to delete chat file: {e}")
@@ -1182,7 +1206,8 @@ class App(QWidget):
             return
         chat = selected_chats[0]
         filename = chat.data(Qt.ItemDataRole.UserRole)
-        self.loadLLMSettings(path=f"chats/{filename}", type=2)
+        path = Path("chats") / f"{filename}"
+        self.loadLLMSettings(path=path, type_f=2)
 
     def chat_settings_switcher(self, checked):
         if not checked:
@@ -1419,7 +1444,8 @@ class App(QWidget):
         chat_data = {}
         filename = chat.data(Qt.ItemDataRole.UserRole)
         try:
-            with open("chats/" + filename, "r") as f:
+            path = Path("chats") / f"{filename}"
+            with open(path, "r") as f:
                 chat_data = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             QMessageBox.critical(self, "Error", "Failed to load the selected chat.")
@@ -1446,7 +1472,8 @@ class App(QWidget):
         chat_data = {}
         filename = chat.data(Qt.ItemDataRole.UserRole)
         try:
-            with open("chats/" + filename, "r") as f:
+            path = Path("chats") / f"{filename}"
+            with open(path, "r") as f:
                 chat_data = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             QMessageBox.critical(self, "Error", "Failed to load the selected chat.")
@@ -1501,7 +1528,8 @@ class App(QWidget):
         chat_data = {}
         filename = chat.data(Qt.ItemDataRole.UserRole)
         try:
-            with open("chats/" + filename, "r") as f:
+            path = Path("chats") / f"{filename}"
+            with open(path, "r") as f:
                 chat_data = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             QMessageBox.critical(self, "Error", "Failed to load the selected chat.")
@@ -1562,11 +1590,13 @@ class App(QWidget):
         buttonsSec.addWidget(settingsModelBtn)
         layout.addLayout(buttonsSec)
 
-        if not os.path.exists("models"):
-            os.makedirs("models")
+        path = Path("models")
+        if not path.exists():
+            path.mkdir(parents=False, exist_ok=True)
 
         try:
-            with open("models/models.json", "r") as f:
+            path = path / "models.json"
+            with open(path, "r") as f:
                 models_json = json.load(f)
                 self.models = models_json.get('models', [])
         except (FileNotFoundError, json.JSONDecodeError):
@@ -1662,7 +1692,7 @@ class App(QWidget):
         for setting in self.bpSettings:
             if setting['name'] == 'gpu_layers' and 1 in setting['use_case']:
                 setting['max'] = int(model.get("layers", "0")) + 1
-        self.loadLLMSettings(path=model.get("path", ""), type=1)
+        self.loadLLMSettings(path=model.get("path", ""), type_f=1)
 
     def model_settings_switcher(self, checked):
         if not checked:
@@ -1688,10 +1718,12 @@ class App(QWidget):
         self.modelsTable.setSortingEnabled(False)
         self.modelsTable.setRowCount(0)
         self.modelSelect.clear()
-        if not os.path.exists("models"):
-            os.makedirs("models")
+        path = Path("models")
+        if not path.exists():
+            path.mkdir(parents=False, exist_ok=True)
+        path = path / "models.json"
         if not self.models:
-            with open("models/models.json", "w") as f:
+            with open(path, "w") as f:
                 json.dump({"models": []}, f, indent=4)
             return
         for model in self.models:
@@ -1706,7 +1738,7 @@ class App(QWidget):
             self.modelsTable.item(row, 0).setData(Qt.ItemDataRole.UserRole, str(row))
 
             self.modelSelect.addItem(model.get("name", "Unknown") + " (" + model.get("weights", "Unknown") + ")", {"row": str(row), "path": model.get("path", "")})
-        with open("models/models.json", "w") as f:
+        with open(path, "w") as f:
             json.dump({"models": self.models}, f, indent=4)
         QTimer.singleShot(0, lambda: self.modelsTable.resizeColumnToContents(0))
         self.modelsTable.setSortingEnabled(True)
@@ -1738,7 +1770,7 @@ class App(QWidget):
 
         self.llmSettingsList = QListWidget()
         self.llmSettingsList.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
-        self.llmSettingsList.currentItemChanged.connect(lambda: self.loadLLMSettings(type=0))
+        self.llmSettingsList.currentItemChanged.connect(lambda: self.loadLLMSettings(type_f=0))
         self.llmSettingsList.itemChanged.connect(self.save_settings_list)
         self.llmSettingsList.itemChanged.connect(lambda: self.reload_settings_select(save_selection=True))
 
@@ -1771,29 +1803,32 @@ class App(QWidget):
         if title is None:
             title, ok = QInputDialog.getText(self, "New Settings Profile", "Enter settings profile name:")
         if ok and title.strip():
+            path = Path("settings")
             if self.llmSettingsList.count() == 0:
-                self.loadLLMSettings(type=-1)
+                self.loadLLMSettings(type_f=-1)
                 settings = QListWidgetItem(title.strip())
                 settings.setData(Qt.ItemDataRole.UserRole, f"settings_llm_default.json")
                 settings.setFlags(settings.flags() | Qt.ItemFlag.ItemIsEditable)
                 self.llmSettingsList.addItem(settings)
-                self.saveLLMSettings(path=f"settings/{settings.data(Qt.ItemDataRole.UserRole)}", type=0)
+                path = path / settings.data(Qt.ItemDataRole.UserRole)
+                self.saveLLMSettings(path=path, type_f=0)
                 self.llmSettingsList.setCurrentItem(settings, QItemSelectionModel.SelectionFlag.ClearAndSelect)
                 self.profileSelect.addItem(title, settings.data(Qt.ItemDataRole.UserRole))
                 self.profileSelect.setCurrentIndex(0)
             else:
-                self.saveLLMSettings(type=0)
-                self.loadLLMSettings(type=-1)
+                self.saveLLMSettings(type_f=0)
+                self.loadLLMSettings(type_f=-1)
                 settings = QListWidgetItem(title.strip())
                 settings.setData(Qt.ItemDataRole.UserRole, f"settings_llm_{self.llmSettingsList.count() - 1}.json")
                 settings.setFlags(settings.flags() | Qt.ItemFlag.ItemIsEditable)
                 self.llmSettingsList.addItem(settings)
-                self.saveLLMSettings(path=f"settings/{settings.data(Qt.ItemDataRole.UserRole)}", type=0)
+                path = path / settings.data(Qt.ItemDataRole.UserRole)
+                self.saveLLMSettings(path=path, type_f=0)
                 self.llmSettingsList.setCurrentItem(settings, QItemSelectionModel.SelectionFlag.ClearAndSelect)
                 self.profileSelect.addItem(title, settings.data(Qt.ItemDataRole.UserRole))
             self.save_settings_list()
     
-    def llm_setting_changed(self, item, native=True, path=None, type=0):
+    def llm_setting_changed(self, item, native=True, path=None, type_f=0):
         if not native:
             self.LLMSettings[item['name']] = item['value']
         else:
@@ -1801,13 +1836,14 @@ class App(QWidget):
             if data:
                 self.LLMSettings[data['name']] = item.text()
                 path = data['path']
-                type = data['type']
-        self.saveLLMSettings(path=path, type=type)
+                type_f = data['type']
+        self.saveLLMSettings(path=path, type_f=type_f)
 
 
     def load_settings_list(self):
         try:
-            with open("settings/settings_list.json", "r") as f:
+            path = Path("settings") / "settings_list.json"
+            with open(path, "r") as f:
                 settings_json = json.load(f)
                 if settings_json.get("settings") is None:
                     self.create_new_settings("Default Settings")
@@ -1835,8 +1871,9 @@ class App(QWidget):
             self.profileSelect.setCurrentIndex(current_selection)
 
     def save_settings_list(self):
-        if not os.path.exists("settings"):
-            os.makedirs("settings")
+        path = Path("settings")
+        if not path.exists():
+            path.mkdir(parents=False, exist_ok=True)
         settings = []
         for i in range(self.llmSettingsList.count()):
             item = self.llmSettingsList.item(i)
@@ -1845,62 +1882,59 @@ class App(QWidget):
             self.create_new_settings("Default Settings")
             return
         try:
-            with open("settings/settings_list.json", "w") as f:
+            path = path / "settings_list.json"
+            with open(path, "w") as f:
                 json.dump({"settings": settings}, f, indent=4)
         except Exception as e:
             print(f"Error saving settings list: {e}")
 
-    def loadLLMSettings(self, path=None, type=0, display=1):
-        if display == 0:
-            self.LLMSettingsTable.setRowCount(0)
-            self.LLMModelSettingsTable.setRowCount(0)
-            self.chatSettingsTable.setRowCount(0)
-        if type == 0 and self.llmSettingsList.currentItem() is None:
+    def loadLLMSettings(self, path=None, type_f=0, display=1):
+        if type_f == 0 and self.llmSettingsList.currentItem() is None:
             return
+        if type(path) == str:
+            path = Path(path)
         try:
-            if type == 0 and path is None:
+            if type_f == 0 and path is None:
                 filename = self.llmSettingsList.currentItem().data(Qt.ItemDataRole.UserRole)
-                path = f"settings/{filename}"
-            if type == -1:
-                path = f"settings/settings_llm_default.json"
-            if type == 1:
-                path = path[:-5]
-                path = f"{path}.json"
-            if type == 2:
-                if not path.endswith("_settings.json"):
-                    path = path[:-5]
-                    path = f"{path}_settings.json"
-            with open(f"{path}", "r") as f:
+                path = Path("settings") / f"{filename}"
+            if type_f == -1:
+                path = path / "settings_llm_default.json"
+            if type_f == 1:
+                path = path.with_suffix(".json")
+            if type_f == 2:
+                if not path.name.endswith("_settings.json"):
+                    path = path.with_name(path.stem + "_settings.json")
+            with open(path, "r") as f:
                 settings_json = json.load(f)
                 self.LLMSettings = settings_json.get('settings', {})
                 for setting in self.bpSettings:
-                    if setting['name'] not in self.LLMSettings and type in setting['use_case']:
+                    if setting['name'] not in self.LLMSettings and type_f in setting['use_case']:
                         self.LLMSettings[setting['name']] = setting['default']
-                        self.saveLLMSettings(path=path, type=type)
+                        self.saveLLMSettings(path=path, type_f=type_f)
         except Exception as e:
             self.LLMSettings = {}
         
         if not self.LLMSettings:
             for setting in self.bpSettings:
-                if type in setting['use_case']:
+                if type_f in setting['use_case']:
                     self.LLMSettings[setting['name']] = setting['default']
-            if type == -1:
+            if type_f == -1:
                 return
-            self.saveLLMSettings(path=path, type=type)
+            self.saveLLMSettings(path=path, type_f=type_f)
 
-        if type == -1 or display == 0:
+        if type_f == -1 or display == 0:
             return
 
         target = None
-        if type == 0:
+        if type_f == 0:
             target = self.LLMSettingsTable
-        elif type == 1:
+        elif type_f == 1:
             target = self.LLMModelSettingsTable
-        elif type == 2:
+        elif type_f == 2:
             target = self.chatSettingsTable
         target.setRowCount(0)
         for setting in self.bpSettings:
-            if type in setting['use_case']:
+            if type_f in setting['use_case']:
                 row = target.rowCount()
                 target.insertRow(row)
                 label = QTableWidgetItem(setting['display'])
@@ -1909,12 +1943,12 @@ class App(QWidget):
                 value = ""
                 if setting['type'] == 'text':
                     value = QTableWidgetItem(self.LLMSettings[setting['name']])
-                    value.setData(Qt.ItemDataRole.UserRole, {"row": row, "name": setting['name'], "path": path, "type": type})
+                    value.setData(Qt.ItemDataRole.UserRole, {"row": row, "name": setting['name'], "path": path, "type": type_f})
                 elif setting['type'] == 'number':
                     value = QLineEdit()
                     value.setValidator(QIntValidator(1024, 65535, value))
                     value.setText(str(self.LLMSettings[setting['name']]))
-                    value.textChanged.connect(lambda text, name=setting['name']: self.llm_setting_changed({'value': text, "name": name}, native=False, path=path, type=type))
+                    value.textChanged.connect(lambda text, name=setting['name']: self.llm_setting_changed({'value': text, "name": name}, native=False, path=path, type_f=type_f))
                 elif setting['type'] == 'slider':
                     value = QFrame()
                     value_layout = QVBoxLayout()
@@ -1933,7 +1967,7 @@ class App(QWidget):
                     slider.setWhatsThis(setting['name'])
                     value_layout.addWidget(slider)
                     curr_label = QLabel(self.LLMSettings[setting['name']])
-                    slider.valueChanged.connect(lambda curr_value, slider_el = slider, label=curr_label: self.update_slider(slider_el,label, curr_value, path=path, type=type))
+                    slider.valueChanged.connect(lambda curr_value, slider_el = slider, label=curr_label: self.update_slider(slider_el,label, curr_value, path=path, type_f=type_f))
                     value_layout.addWidget(curr_label)
                     value.setLayout(value_layout)
                     self.update_slider(slider, curr_label, slider.value())
@@ -1944,11 +1978,11 @@ class App(QWidget):
                         value.addItem(option)
                         if option == self.LLMSettings[setting['name']]:
                             value.setCurrentText(option) 
-                    value.currentTextChanged.connect(lambda text, name=setting['name']: self.llm_setting_changed({'value': text, "name": name},native=False, path=path, type=type))
+                    value.currentTextChanged.connect(lambda text, name=setting['name']: self.llm_setting_changed({'value': text, "name": name},native=False, path=path, type_f=type_f))
                 elif setting['type'] == 'checkbox':
                     value = QCheckBox()
                     value.setChecked(bool(self.LLMSettings[setting['name']]))
-                    value.stateChanged.connect(lambda state, name=setting['name']: self.llm_setting_changed({'value': state, "name": name}, native=False, path=path, type=type))
+                    value.stateChanged.connect(lambda state, name=setting['name']: self.llm_setting_changed({'value': state, "name": name}, native=False, path=path, type_f=type_f))
                 elif setting['type'] == 'radiobutton':
                     value = ToggleSwitch()
                     value.setChecked(bool(self.LLMSettings[setting['name']]))
@@ -1960,33 +1994,34 @@ class App(QWidget):
                     if setting['name'] == 'chat_settings':
                         value.setToolTip("When turned on, it uses chat settings for chat instead of profile settings.")
                         value.toggled.connect(lambda checked: self.chat_settings_switcher(checked))
-                    value.toggled.connect(lambda checked, name=setting['name']: self.llm_setting_changed({'value': checked, "name": name}, native=False, path=path, type=type))
+                    value.toggled.connect(lambda checked, name=setting['name']: self.llm_setting_changed({'value': checked, "name": name}, native=False, path=path, type_f=type_f))
 
                 target.setCellWidget(row, 1, value) if not isinstance(value, QTableWidgetItem) else target.setItem(row, 1, value)
                 target.resizeRowToContents(row)
-        if type == 1:
+        if type_f == 1:
             self.model_settings_switcher(self.LLMSettings.get('model_settings', False))
-        elif type == 2:
+        elif type_f == 2:
             self.chat_settings_switcher(self.LLMSettings.get('chat_settings', False))
 
-    def saveLLMSettings(self, path=None, type=0):
+    def saveLLMSettings(self, path=None, type_f=0):
         if self.llmSettingsList.count() == 0:
             return
-        if not os.path.exists("settings"):
-            os.makedirs("settings")
-        if type == 0 and path is None:
+        path_b = Path("settings")
+        if type(path) == str:
+            path = Path(path)
+        if not path_b.exists():
+            path_b.mkdir(parents=False, exist_ok=True)
+        if type_f == 0 and path is None:
             filename = self.llmSettingsList.currentItem().data(Qt.ItemDataRole.UserRole)
-            path = f"settings/{filename}"
-        if type == 1:
-            path = path[:-5]
-            path = f"{path}.json"
-        if type == 2:
-            if not path.endswith("_settings.json"):
-                path = path[:-5]
-                path = f"{path}_settings.json"
+            path = path_b / f"{filename}"
+        if type_f == 1:
+            path = path.with_suffix(".json")
+        if type_f == 2:
+            if not path.name.endswith("_settings.json"):
+                path = path.with_name(path.stem + "_settings.json")
         try:
-            with open(f"{path}", "w") as f:
-                json.dump({"settings": self.LLMSettings, "type": type}, f, indent=4)
+            with open(path, "w") as f:
+                json.dump({"settings": self.LLMSettings, "type": type_f}, f, indent=4)
         except Exception as e:
             print(f"Error saving LLM settings: {e}")
 
@@ -2000,13 +2035,14 @@ class App(QWidget):
             self.profileSelect.removeItem(self.profileSelect.findData(settings.data(Qt.ItemDataRole.UserRole)))
             filename = settings.data(Qt.ItemDataRole.UserRole)
             try:
-                os.remove("settings/" + filename)
+                path = Path("settings") / f"{filename}"
+                path.unlink(missing_ok=True)
                 self.save_settings_list()
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to delete settings file: {e}")
                 return
 
-    def update_slider(self, slider, label, value, path=None, type=0):
+    def update_slider(self, slider, label, value, path=None, type_f=0):
         label.setText(str(value))
         slider_width = slider.width() - slider.style().pixelMetric(slider.style().PixelMetric.PM_SliderLength)
         if slider_width <= 0:
@@ -2021,7 +2057,7 @@ class App(QWidget):
         label.setContentsMargins(x_offset, 0, 0, 0)
 
         self.LLMSettings[slider.whatsThis()] = str(value)
-        self.saveLLMSettings(path=path, type=type)
+        self.saveLLMSettings(path=path, type_f=type_f)
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)

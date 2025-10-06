@@ -50,6 +50,7 @@ The idea was born out of my frustration with some things not available in LMStud
     - [ ] Compare statistics (benchmark)
 - [x] Store statistics in chat file
 - [ ] Start splitting code into files
+- [ ] Specify return types in definition
 - [x] Starting llama.cpp server in app
 - [x] Try to preserve system prompt history
 - [ ] Implement Image Generation in chat
