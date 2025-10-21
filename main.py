@@ -2083,7 +2083,6 @@ class App(QWidget):
     
     def llm_setting_changed_checkbox_group(self, state, name, option, path=None, type_f=0):
         current_options = self.LLMSettings.get(name, [])
-        print(state)
         if state > 0:
             if option not in current_options:
                 current_options.append(option)
