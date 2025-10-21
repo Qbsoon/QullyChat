@@ -5,7 +5,8 @@ from PyQt6.QtWidgets import (
 	QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit, QLineEdit,
 	QTabWidget, QMessageBox, QTableWidget, QTableWidgetItem, QSizePolicy, QFileDialog, QSplitter,
     QDialog, QListWidget, QListWidgetItem, QInputDialog, QComboBox, QCheckBox, QSlider, QFrame,
-    QRadioButton, QScrollArea, QTextBrowser, QToolTip, QStackedLayout, QMenu, QHeaderView
+    QRadioButton, QScrollArea, QTextBrowser, QToolTip, QStackedLayout, QMenu, QHeaderView,
+    QGridLayout
 )
 from PyQt6.QtGui import (
     QTextCursor, QPixmap, QCursor, QIntValidator, QPainter, QColor, QBrush, QPen, QMouseEvent,
@@ -698,7 +699,8 @@ class App(QWidget):
             {'type': 'combo', 'name': 'gpu_layers', 'display': 'Layers on GPU', 'default': "All", 'options': ["Auto", "All", "0"], 'use_case': [0, 2]},
             {'type': 'slider', 'name': 'gpu_layers', 'display': 'Layers on GPU', 'default': "-1", 'min': 0, 'max': 0, 'use_case': [1]},
             {'type': 'number', 'name': 'batch_size', 'display': 'Batch size', 'default': "512", 'use_case': [0, 1, 2]},
-            {'type': 'text', 'name': 'system_prompt', 'display': 'System prompt', 'default': 'You are a helpful assistant.', 'use_case': [0, 1, 2]}
+            {'type': 'text', 'name': 'system_prompt', 'display': 'System prompt', 'default': 'You are a helpful assistant.', 'use_case': [0, 1, 2]},
+            {'type': 'checkbox_group', 'name': 'statistics_display', 'display': 'Display statistics', 'options': ['Input ms', 'Generation ms', 'Total ms', 'Input tokens', 'Generated tokens', 'Total tokens', 'Tokens per second'], 'max_per_line': 4, 'default': ['Input ms', 'Generation ms', 'Total ms', 'Input tokens', 'Generated tokens', 'Total tokens', 'Tokens per second'], 'use_case': [0, 1, 2]}
         ]   # 0: llm settings tab; 1: llm model-specific settings; 2: chat-specific settings
         self.currentAddress = "http://127.0.0.1:5175/v1/chat/completions"
         self.last_stats = {}
@@ -1340,15 +1342,15 @@ class App(QWidget):
                 bubble = ChatBubble(content, "assistant", llm=message.get('llm', None))
                 stats = message.get('stats', {})
                 stats_html = f'''
-                    <b>Time</b>
-                    <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Input (ms):</b> {stats.get('input_ms', "Unavailable")}</div>
-                    <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Generation (ms):</b> {stats.get('gen_ms', "Unavailable")}</div>
-                    <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Total (ms):</b> {stats.get('total_ms', "Unavailable")}</div>
-                    <b>Tokens</b>
-                    <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Input:</b> {stats.get('input_t', "Unavailable")}</div>
-                    <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Generated:</b> {stats.get('gen_t', "Unavailable")}</div>
-                    <div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Total:</b> {stats.get('total_t', "Unavailable")}</div>
-                    <b>Tokens per second:</b> {stats.get('t_s', "Unavailable")}
+                    {'<b>Time</b>' if any(stat in self.LLMSettings.get('statistics_display', []) for stat in ['Input ms', 'Generation ms', 'Total ms']) else ''}
+                    {f'<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Input (ms):</b> {stats.get('input_ms', "Unavailable")}</div>' if 'Input ms' in self.LLMSettings.get('statistics_display', []) else ''}
+                    {f'<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Generation (ms):</b> {stats.get('gen_ms', "Unavailable")}</div>' if 'Generation ms' in self.LLMSettings.get('statistics_display', []) else ''}
+                    {f'<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Total (ms):</b> {stats.get('total_ms', "Unavailable")}</div>' if 'Total ms' in self.LLMSettings.get('statistics_display', []) else ''}
+                    {'<b>Tokens</b>' if any(stat in self.LLMSettings.get('statistics_display', []) for stat in ['Input tokens', 'Generated tokens', 'Total tokens']) else ''}
+                    {f'<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Input:</b> {stats.get('input_t', "Unavailable")}</div>' if 'Input tokens' in self.LLMSettings.get('statistics_display', []) else ''}
+                    {f'<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Generated:</b> {stats.get('gen_t', "Unavailable")}</div>' if 'Generated tokens' in self.LLMSettings.get('statistics_display', []) else ''}
+                    {f'<div style="display: block; margin: 0 0 0 1em; padding: 0;"><b>Total:</b> {stats.get('total_t', "Unavailable")}</div>' if 'Total tokens' in self.LLMSettings.get('statistics_display', []) else ''}
+                    {f'<b>Tokens per second:</b> {stats.get('t_s', "Unavailable")}' if 'Tokens per second' in self.LLMSettings.get('statistics_display', []) else ''}
                 '''
                 bubble.statsBtn.info = stats_html
             elif role == 'system':
@@ -1986,6 +1988,23 @@ class App(QWidget):
                     value = QCheckBox()
                     value.setChecked(bool(self.LLMSettings[setting['name']]))
                     value.stateChanged.connect(lambda state, name=setting['name']: self.llm_setting_changed({'value': state, "name": name}, native=False, path=path, type_f=type_f))
+                elif setting['type'] == 'checkbox_group':
+                    value = QWidget()
+                    value_layout = QVBoxLayout()
+                    value_part_layout = QHBoxLayout()
+                    for i in range(len(setting['options'])):
+                        if i % setting['max_per_line'] == 0:
+                            value_part_layout = QHBoxLayout()
+                            value_part_layout.setContentsMargins(2, 2, 2, 2)
+                            value_part_layout.setSpacing(2)
+                        option = setting['options'][i]
+                        checkbox = QCheckBox(option)
+                        checkbox.setChecked(bool(option in self.LLMSettings[setting['name']]))
+                        checkbox.stateChanged.connect(lambda state, name=setting['name'], opt=option: self.llm_setting_changed_checkbox_group(state, name, opt, path=path, type_f=type_f))
+                        value_part_layout.addWidget(checkbox)
+                        if (i + 1) % setting['max_per_line'] == 0 or i == len(setting['options']) - 1:
+                            value_layout.addLayout(value_part_layout)
+                    value.setLayout(value_layout)
                 elif setting['type'] == 'radiobutton':
                     value = ToggleSwitch()
                     value.setChecked(bool(self.LLMSettings[setting['name']]))
@@ -2061,6 +2080,19 @@ class App(QWidget):
 
         self.LLMSettings[slider.whatsThis()] = str(value)
         self.saveLLMSettings(path=path, type_f=type_f)
+    
+    def llm_setting_changed_checkbox_group(self, state, name, option, path=None, type_f=0):
+        current_options = self.LLMSettings.get(name, [])
+        print(state)
+        if state > 0:
+            if option not in current_options:
+                current_options.append(option)
+        else:
+            if option in current_options:
+                current_options.remove(option)
+        self.LLMSettings[name] = current_options
+        self.saveLLMSettings(path=path, type_f=type_f)
+        self.update_chat_display()
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
