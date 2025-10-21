@@ -4,3 +4,4 @@ markdown==3.9
 numpy==2.3.3
 gguf==0.17.1
 sseclient-py==1.8.0
+psutil

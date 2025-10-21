@@ -1108,7 +1108,10 @@ class App(QWidget):
     
     def load_chat_list(self):
         try:
-            path = Path("chats") / "chat_list.json"
+            path = Path("chats")
+            if not path.exists():
+                path.mkdir(parents=False, exist_ok=True)
+            path = path / "chat_list.json"
             with open(path, "r") as f:
                 chats = json.load(f)
                 if chats.get("chats") is None:
