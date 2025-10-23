@@ -2,3 +2,4 @@ llama/
 chats/
 settings/
 models/
+__pycache__/
