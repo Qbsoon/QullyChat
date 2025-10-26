@@ -1,10 +1,10 @@
 import math
 from PyQt6.QtWidgets import (
 	QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit, QSizePolicy, QFrame,
-    QScrollArea, QTextBrowser, QStackedLayout
+    QScrollArea, QTextBrowser, QStackedLayout, QTreeWidget, QTreeWidgetItem
 )
 from PyQt6.QtGui import (
-    QTextOption, QFontDatabase, QFont
+    QTextOption, QFontDatabase, QFont, QBrush, QColor
 )
 from PyQt6.QtCore import (
     Qt
@@ -12,13 +12,14 @@ from PyQt6.QtCore import (
 from hover_label import HoverLabel
 
 class ChatBubble(QFrame):
-    def __init__(self, text, speaker, llm = None):
+    def __init__(self, text, speaker, llm = None, think = None):
         super().__init__()
         self.text = text
         self.speaker = speaker
         self.speaker_print = ""
         self.styleBase = ""
         self.margins = (0, 0, 0, 0)
+        self.think = think
         align = Qt.AlignmentFlag.AlignCenter
 
         font_id = QFontDatabase.addApplicationFont("FiraCodeNerdFont-Regular.ttf")
@@ -41,8 +42,12 @@ class ChatBubble(QFrame):
         mainPage = QWidget()
         mainPage.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         mp_layout = QVBoxLayout()
-        label = QLabel(self.speaker_print)
-        mp_layout.addWidget(label)
+        self.label = QLabel(self.speaker_print)
+        mp_layout.addWidget(self.label)
+        if think:
+            self.thinkbox = CollapsableThink(think)
+            self.thinkbox.setStyleSheet("margin: 0px;")
+            mp_layout.addWidget(self.thinkbox)
         self.textbox = ChatBubbleText(self.text, align=align)
         mp_layout.addWidget(self.textbox, 10)
 
@@ -238,6 +243,10 @@ QPushButton:hover {
     def resizeEvent(self, e):
         self._applyResponsiveMargins()
         super().resizeEvent(e)
+        if self.think:
+            current_state = self.thinkbox.parent_item.isExpanded()
+            self.thinkbox.parent_item.setExpanded(False)
+            self.thinkbox.parent_item.setExpanded(current_state)
 
     def _basisWidth(self):
         w = self.parentWidget()
@@ -324,3 +333,58 @@ class ChatBubbleText(QTextBrowser):
         h = max(1, doc_h + 2 * self.frameWidth())
         self.setFixedHeight(h)
         self.updateGeometry()
+
+class CollapsableThink(QWidget):
+    def __init__(self, text):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+
+        self.tree = QTreeWidget()
+        self.tree.setHeaderHidden(True)
+        self.tree.itemExpanded.connect(self.on_expand)
+        self.tree.itemCollapsed.connect(self.on_collapse)
+        self.tree.setMaximumHeight(40)
+        self.tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.tree.setUniformRowHeights(False)
+
+        self.parent_item = QTreeWidgetItem(self.tree)
+        self.parent_item.setText(0, "Thought process")
+        self.parent_item.setForeground(0, QBrush(QColor("#055160")))
+        f = self.tree.font()
+        f.setBold(True)
+        self.parent_item.setFont(0, f)
+        self.parent_item.setExpanded(False)
+
+        self.child_item = QTreeWidgetItem(self.parent_item)
+        self.think_widget = ChatBubbleText(text, align=Qt.AlignmentFlag.AlignLeft)
+        self.tree.setItemWidget(self.child_item, 0, self.think_widget)
+        self.think_widget.setVisible(False)
+
+        layout.addWidget(self.tree)
+        self.parent_item.setExpanded(True)
+        self.parent_item.setExpanded(False)
+
+        style = '''
+QTreeWidget {
+    background-color: #a6c3ca;
+}
+QFrame {
+    background-color: #a6c3ca !important;
+}
+'''
+        self.tree.setStyleSheet(style)
+
+    def on_expand(self, item):
+        if item == self.parent_item:
+            self.think_widget.setVisible(True)
+            self.tree.resizeColumnToContents(0)
+            self.tree.viewport().update()
+            self.tree.setMinimumHeight(round(self.think_widget.height()) + 40)
+            self.tree.setMaximumHeight(6000)
+    
+    def on_collapse(self, item):
+        if item == self.parent_item:
+            self.think_widget.setVisible(False)
+            self.tree.setMinimumHeight(40)
+            self.tree.setMaximumHeight(40)

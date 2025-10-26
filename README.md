@@ -21,6 +21,7 @@ The idea was born out of my frustration with some things not available in LMStud
     - [x] Add delete button
     - [x] Edit made prompts (but only with regenerate & branch solutions)
     - [x] Show model name instead of Assistant
+    - [x] Add "thinking" box
 - [x] Implement chats list
     - [x] Ability to move chats on the list
     - [x] Export chat

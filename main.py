@@ -664,10 +664,12 @@ class App(QWidget):
 
     def handle_reply(self, reply):
         print(f'Reply: {reply}')
+        reply_think = ""
         if reply.startswith("<think>") and "</think>" in reply:
+            reply_think = reply.split("</think>")[0][7:]
             reply = reply.split("</think>")[1]
         QApplication.processEvents()
-        self.chatHistory.append({"role": "assistant", "content": reply, "llm": self.modelSelect.currentText(), "stats": self.last_stats})
+        self.chatHistory.append({"role": "assistant", "think": reply_think, "content": reply, "llm": self.modelSelect.currentText(), "stats": self.last_stats})
         self.update_chat_display()
         self._suppress_input = False
     
@@ -700,7 +702,7 @@ class App(QWidget):
                 bubble.saveBtn.clicked.connect(lambda _checked, b=bubble: self.save_edit_bubble(bubble=b))
             elif role == 'assistant':
                 content = md_to_html(content, extensions=["extra", "fenced_code", "sane_lists", "nl2br"])
-                bubble = ChatBubble(content, "assistant", llm=message.get('llm', None))
+                bubble = ChatBubble(content, "assistant", llm=message.get('llm', None), think=message.get('think', None))
                 stats = message.get('stats', {})
                 stats_html = f'''
                     {'<b>Time</b>' if any(stat in self.LLMSettings.get('statistics_display', []) for stat in ['Input ms', 'Generation ms', 'Total ms']) else ''}
